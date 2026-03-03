@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import ingest
 from app.routers import cases
+from app.routers import planner
 
 app = FastAPI(
     title="TracePoint API",
@@ -20,6 +21,7 @@ app.add_middleware(
 
 app.include_router(ingest.router)
 app.include_router(cases.router)
+app.include_router(planner.router)
 
 
 @app.get("/")

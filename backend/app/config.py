@@ -19,4 +19,8 @@ GOOGLE_API_KEY2 = os.getenv("GOOGLE_API_KEY2", "")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "512"))
 CHUNK_OVERLAP = float(os.getenv("CHUNK_OVERLAP", "0.1"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
+
+# Model choices
+PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gemini-3.0")
+FRICTION_MODEL = os.getenv("FRICTION_MODEL", "gemini-3.0-flash")
 EVIDENCE_CLERK_MODEL = os.getenv("EVIDENCE_CLERK_MODEL", "gemini-3.0-flash-lite")

@@ -70,6 +70,33 @@ API docs at http://localhost:8000/docs
    { "case_id": "<uuid>", "chunks_created": N }
    ```
 
+3. **Request planner tasks for a fact-to-check**
+
+   ```bash
+   curl -X POST http://localhost:8000/planner/plan \
+     -H "Content-Type: application/json" \
+     -d '{"case_id":"<uuid>","fact_to_check":"The suspect was at the store at 23:00"}'
+   ```
+
+   Response (shape):
+
+   ```json
+   {
+     "case_id": "<uuid>",
+     "fact_to_check": "...",
+     "friction_summary": { "has_friction": true, "description": "..." },
+     "search_boundary": { "start_time": "...", "end_time": "..." },
+     "tasks": [
+       {
+         "type": "VERIFICATION",
+         "question_text": "...",
+         "vector_query": "...",
+         "metadata_filter": { "label": "gps_log" }
+       }
+     ]
+   }
+   ```
+
 ### 3. Frontend
 
 ```bash
