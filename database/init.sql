@@ -2,8 +2,8 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 -- UUID generation for cases
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
--- PostGIS for geography(POINT) in cases (optional; required for location_coordinates)
-CREATE EXTENSION IF NOT EXISTS postgis;
+-- PostGIS: not available in pgvector image; use postgis/postgis + pgvector for geo.
+-- Store coords in additional_metadata JSONB until then.
 
 CREATE TABLE evidence_chunks (
     id BIGSERIAL PRIMARY KEY,
@@ -47,7 +47,6 @@ CREATE TABLE cases (
     target_subject_name TEXT,
     crime_timestamp_start TIMESTAMPTZ,
     crime_timestamp_end TIMESTAMPTZ,
-    location_coordinates geography(POINT),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     status TEXT DEFAULT 'active'

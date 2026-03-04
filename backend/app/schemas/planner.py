@@ -1,6 +1,6 @@
 """Schemas for planner agent input and output."""
 from datetime import datetime
-from typing import Dict, List, Literal, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -43,6 +43,13 @@ InvestigativeType = Literal[
 ]
 
 
+class MetadataFilterItem(BaseModel):
+    """Single key-value pair for metadata filtering."""
+
+    key: str = Field(..., description="Metadata key, e.g. 'label'")
+    value: str = Field(..., description="Metadata value, e.g. 'gps_log'")
+
+
 class PlannerTask(BaseModel):
     """Single investigative task produced by the planner."""
 
@@ -55,9 +62,10 @@ class PlannerTask(BaseModel):
     vector_query: str = Field(
         ..., description="Descriptive sentence used for vector search (not a single keyword)"
     )
-    metadata_filter: Dict[str, str] = Field(
-        ..., description="Metadata filters for SQL/ORM WHERE clauses (e.g., {'label': 'gps_log'})",
-        min_items=1,
+    metadata_filter: List[MetadataFilterItem] = Field(
+        ...,
+        description="Metadata filters as key-value pairs (e.g. [{\"key\": \"label\", \"value\": \"gps_log\"}])",
+        min_length=1,
     )
 
 

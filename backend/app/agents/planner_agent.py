@@ -1,10 +1,21 @@
 """Planner agent: generate investigative tasks for a case and claim."""
 from typing import Optional
+import json
 
 from google import genai
 from google.genai import types
+from openai import OpenAI
 
-from app.config import GOOGLE_API_KEY, PLANNER_MODEL
+from app.config import (
+    GOOGLE_API_KEY,
+    PLANNER_MODEL,
+    OPENAI_API_KEY,
+    OPENAI_PLANNER_MODEL,
+    PLANNER_PROVIDER,
+    GROQ_API_KEY,
+    GROQ_PLANNER_MODEL,
+    GROQ_BASE_URL,
+)
 from app.agents.friction_detector import detect_friction
 from app.agents import planner_templates
 from app.db.models import Case
@@ -23,6 +34,7 @@ def _build_system_prompt() -> str:
         "You receive a case overview and a single fact to check.",
         "Your job is to propose exactly five investigative tasks.",
         "Each task must include: type, question_text, vector_query, metadata_filter.",
+        "metadata_filter must be a list of {key, value} objects (e.g. {\"key\": \"label\", \"value\": \"gps_log\"}), not a raw object.",
         "Types must be one of: VERIFICATION, IMPOSSIBILITY, ENVIRONMENTAL,",
         "NEGATIVE_PROOF, RECALL_STRESS.",
         "Vector queries must be full descriptive sentences suitable for an",
@@ -40,6 +52,8 @@ def _build_system_prompt() -> str:
         planner_templates.ENVIRONMENTAL_TEMPLATE,
         planner_templates.NEGATIVE_PROOF_TEMPLATE,
         planner_templates.RECALL_STRESS_TEMPLATE,
+        "You must return ONLY a JSON object with a single top-level key 'tasks'.",
+        "'tasks' must be a list of exactly five objects, each with fields: type, question_text, vector_query, metadata_filter.",
     ]
     return "\n\n".join(parts)
 
@@ -58,11 +72,6 @@ async def run_planner(case: Case, req: PlannerRequest) -> PlannerResponse:
     This function does not perform gatekeeper validation; that is handled
     by a separate component.
     """
-    if not GOOGLE_API_KEY:
-        raise RuntimeError("GOOGLE_API_KEY is required for the planner agent.")
-
-    client = genai.Client(api_key=GOOGLE_API_KEY)
-
     friction: FrictionSummary = await detect_friction(
         case_brief_text=case.case_brief_text,
         fact_to_check=req.fact_to_check,
@@ -78,6 +87,76 @@ async def run_planner(case: Case, req: PlannerRequest) -> PlannerResponse:
         f"SEARCH BOUNDARY (start={search_boundary.start_time}, "
         f"end={search_boundary.end_time})."
     )
+
+    # If configured, use OpenAI as the planner provider
+    if PLANNER_PROVIDER == "openai":
+        if not OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY is required when PLANNER_PROVIDER=openai.")
+
+        client = OpenAI(api_key=OPENAI_API_KEY)
+
+        completion = client.chat.completions.create(
+            model=OPENAI_PLANNER_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+        )
+
+        try:
+            json_text = completion.choices[0].message.content
+            raw = json.loads(json_text or "{}")
+            tasks = raw.get("tasks", [])
+        except (AttributeError, IndexError, KeyError, json.JSONDecodeError) as exc:  # pragma: no cover - defensive
+            raise RuntimeError("OpenAI planner response missing or invalid JSON 'tasks'") from exc
+
+        data = {
+            "case_id": req.case_id,
+            "fact_to_check": req.fact_to_check,
+            "friction_summary": friction.model_dump(),
+            "search_boundary": search_boundary.model_dump(),
+            "tasks": tasks,
+        }
+        return PlannerResponse.model_validate(data)
+
+    # If configured, use Groq (OpenAI-compatible) as the planner provider
+    if PLANNER_PROVIDER == "groq":
+        if not GROQ_API_KEY:
+            raise RuntimeError("GROQ_API_KEY is required when PLANNER_PROVIDER=groq.")
+
+        client = OpenAI(api_key=GROQ_API_KEY, base_url=GROQ_BASE_URL)
+
+        completion = client.chat.completions.create(
+            model=GROQ_PLANNER_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+        )
+
+        try:
+            json_text = completion.choices[0].message.content
+            raw = json.loads(json_text or "{}")
+            tasks = raw.get("tasks", [])
+        except (AttributeError, IndexError, KeyError, json.JSONDecodeError) as exc:  # pragma: no cover - defensive
+            raise RuntimeError("Groq planner response missing or invalid JSON 'tasks'") from exc
+
+        data = {
+            "case_id": req.case_id,
+            "fact_to_check": req.fact_to_check,
+            "friction_summary": friction.model_dump(),
+            "search_boundary": search_boundary.model_dump(),
+            "tasks": tasks,
+        }
+        return PlannerResponse.model_validate(data)
+
+    # Default: use Gemini as the planner provider
+    if not GOOGLE_API_KEY:
+        raise RuntimeError("GOOGLE_API_KEY is required for the planner agent.")
+
+    client = genai.Client(api_key=GOOGLE_API_KEY)
 
     try:
         response = await client.aio.models.generate_content(

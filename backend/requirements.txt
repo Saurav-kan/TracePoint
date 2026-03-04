@@ -8,3 +8,4 @@ google-genai>=1.0.0
 docling>=2.0.0
 docling-core[chunking-openai]>=2.0.0
 tiktoken>=0.6.0
+openai

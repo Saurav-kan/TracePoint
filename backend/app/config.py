@@ -23,4 +23,17 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
 # Model choices
 PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gemini-3.0")
 FRICTION_MODEL = os.getenv("FRICTION_MODEL", "gemini-3.0-flash")
-EVIDENCE_CLERK_MODEL = os.getenv("EVIDENCE_CLERK_MODEL", "gemini-3.0-flash-lite")
+EVIDENCE_CLERK_MODEL = os.getenv("EVIDENCE_CLERK_MODEL", "gemini-3.0-flash")
+
+# OpenAI configuration (optional)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_PLANNER_MODEL = os.getenv("OPENAI_PLANNER_MODEL", "gpt-4.1-mini")
+
+# Groq configuration (optional, OpenAI-compatible API)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_PLANNER_MODEL = os.getenv("GROQ_PLANNER_MODEL", "gpt-oss-120b")
+GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+
+# Provider switches
+# PLANNER_PROVIDER can be: "gemini" (default), "openai", or "groq"
+PLANNER_PROVIDER = os.getenv("PLANNER_PROVIDER", "gemini").lower()

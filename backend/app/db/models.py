@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -19,7 +19,7 @@ class Case(Base):
     __tablename__ = "cases"
 
     case_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True
+        UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     case_brief_text: Mapped[str] = mapped_column(Text, nullable=False)
