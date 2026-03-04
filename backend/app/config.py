@@ -34,6 +34,15 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_PLANNER_MODEL = os.getenv("GROQ_PLANNER_MODEL", "gpt-oss-120b")
 GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 
+# Research agent configuration
+RESEARCH_TIME_FILTER_ENABLED = (
+    os.getenv("RESEARCH_TIME_FILTER_ENABLED", "false").lower() == "true"
+)
+RESEARCH_DISTANCE_METRIC = os.getenv("RESEARCH_DISTANCE_METRIC", "cosine").lower()
+if RESEARCH_DISTANCE_METRIC not in {"cosine", "l2"}:
+    RESEARCH_DISTANCE_METRIC = "cosine"
+RESEARCH_TOP_K = int(os.getenv("RESEARCH_TOP_K", "5"))
+
 # Provider switches
 # PLANNER_PROVIDER can be: "gemini" (default), "openai", or "groq"
 PLANNER_PROVIDER = os.getenv("PLANNER_PROVIDER", "gemini").lower()
