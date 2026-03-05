@@ -1,0 +1,14 @@
+Case Truth: The Midnight Glitch
+
+The Absolute Truth:
+The theft was an inside job orchestrated by Sarah Vane. Blackmailed by the "Glitch Collective," she used her technical expertise to install a keylogger on Dr. Aris's laptop to steal his administrative credentials. She physically entered the server room, inserted a blue Toshiba USB drive containing the payload, and triggered the alarm as she left. She purposely left the USB drive to frame Dr. Aris, but her own fingerprints and a string in her code ("property_of_vane_it") give her away.
+
+Claim: Sarah Vane (Lead IT Engineer) is the primary perpetrator who physically accessed the server room to insert a malicious USB drive, framing Dr. Aris in the process.
+
+Truth: True
+
+Evidence Points:
+1. Thorne's testimony confirms only Vane, Aris, and himself had access (Interview Thorne).
+2. Forensic logs show a USB device was mounted during the breach (Forensic Logs).
+3. The USB drive found at Rack 4 contains Vane's fingerprints and code signature (Evidence Report TP-0042).
+4. The 'aris_admin' login was a result of credential theft, not Aris himself.

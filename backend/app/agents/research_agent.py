@@ -10,10 +10,14 @@ from typing import List
 
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.types import Float
 
-from app.app_config import RESEARCH_DISTANCE_METRIC, RESEARCH_TIME_FILTER_ENABLED, RESEARCH_TOP_K  # type: ignore[attr-defined]
+from app.config import RESEARCH_DISTANCE_METRIC, RESEARCH_TIME_FILTER_ENABLED, RESEARCH_TOP_K  # type: ignore[attr-defined]
 from app.db.models import EvidenceChunk
 from app.db.session import get_session
+
+# Table reference for column-only selects (avoids ORM loading the Vector column)
+_ec_table = EvidenceChunk.__table__
 from app.ingestion.embedder import embed_texts
 from app.schemas.planner import PlannerResponse
 from app.schemas.research import EvidenceSnippet, ResearchResponse, ResearchTaskResult
@@ -23,24 +27,35 @@ def _similarity_column(embedding_column, query_embedding):
     """Return the appropriate similarity expression based on distance metric.
 
     Cosine distance uses the `<=>` operator; L2 uses `<->`.
+    return_type=Float ensures the result column is typed as float, not Vector,
+    so pgvector's result_processor is not applied to the score (avoids TypeError).
     """
     if RESEARCH_DISTANCE_METRIC == "l2":
-        return embedding_column.op("<->")(query_embedding)
-    return embedding_column.op("<=>")(query_embedding)
+        return embedding_column.op("<->", return_type=Float)(query_embedding)
+    return embedding_column.op("<=>", return_type=Float)(query_embedding)
 
 
-def _build_metadata_filters(task, ec_alias) -> List:  # type: ignore[type-arg]
+def _build_metadata_filters(task, table_or_entity) -> List:  # type: ignore[type-arg]
     """Translate MetadataFilterItem list into SQLAlchemy filter expressions."""
     clauses: List = []
+    # Support both Table.c.attr and ORM InstrumentedAttribute
+    if hasattr(table_or_entity, "c"):
+        label_col = table_or_entity.c.label
+        source_doc_col = table_or_entity.c.source_document
+        meta_col = table_or_entity.c.additional_metadata
+    else:
+        label_col = table_or_entity.label
+        source_doc_col = table_or_entity.source_document
+        meta_col = table_or_entity.additional_metadata
     for item in task.metadata_filter:
         key = item.key
         value = item.value
         if key == "label":
-            clauses.append(ec_alias.label == value)
+            clauses.append(label_col == value)
         elif key == "source_document":
-            clauses.append(ec_alias.source_document == value)
+            clauses.append(source_doc_col == value)
         else:
-            clauses.append(ec_alias.additional_metadata[value].astext == value)
+            clauses.append(meta_col[value].astext == value)
     return clauses
 
 
@@ -70,22 +85,29 @@ def run_research(planner_resp: PlannerResponse) -> ResearchResponse:
                 continue
             query_emb = embeddings[0]
 
-            ec = EvidenceChunk
-            sim_col = _similarity_column(ec.embedding, query_emb)
-
-            filters = [ec.case_id == str(planner_resp.case_id)]
+            # Use table columns so the result set never includes the Vector column.
+            # Selecting from the ORM entity can still trigger pgvector's result_processor
+            # and cause TypeError when column order is ambiguous.
+            sim_col = _similarity_column(_ec_table.c.embedding, query_emb)
+            filters = [_ec_table.c.case_id == str(planner_resp.case_id)]
 
             # Optional time filter
             if RESEARCH_TIME_FILTER_ENABLED:
                 start = planner_resp.search_boundary.start_time
                 end = planner_resp.search_boundary.end_time
                 if start is not None and end is not None:
-                    filters.append(ec.timestamp.between(start, end))
+                    filters.append(_ec_table.c.timestamp.between(start, end))
 
-            filters.extend(_build_metadata_filters(task, ec))
+            filters.extend(_build_metadata_filters(task, _ec_table))
 
             stmt = (
-                select(ec, sim_col.label("score"))
+                select(
+                    _ec_table.c.id,
+                    _ec_table.c.content,
+                    _ec_table.c.source_document,
+                    _ec_table.c.case_id,
+                    sim_col.label("score"),
+                )
                 .where(and_(*filters))
                 .order_by(sim_col.asc())
                 .limit(RESEARCH_TOP_K)
@@ -94,39 +116,35 @@ def run_research(planner_resp: PlannerResponse) -> ResearchResponse:
             rows = session.execute(stmt).all()
 
             evidence_items: List[EvidenceSnippet] = []
-            for ec_row, score in rows:
-                # Fetch immediate previous and next chunks by id within same document
-                prev_stmt = (
-                    select(EvidenceChunk)
-                    .where(
-                        EvidenceChunk.source_document == ec_row.source_document,
-                        EvidenceChunk.case_id == ec_row.case_id,
-                        EvidenceChunk.id < ec_row.id,
-                    )
-                    .order_by(EvidenceChunk.id.desc())
-                    .limit(1)
+            for row in rows:
+                chunk_id, content, source_document, case_id, score = row
+                # Fetch immediate previous and next chunk content only (table select, no Vector)
+                prev_row = (
+                    session.execute(
+                        select(_ec_table.c.content).where(
+                            _ec_table.c.source_document == source_document,
+                            _ec_table.c.case_id == case_id,
+                            _ec_table.c.id < chunk_id,
+                        ).order_by(_ec_table.c.id.desc()).limit(1)
+                    ).first()
                 )
-                next_stmt = (
-                    select(EvidenceChunk)
-                    .where(
-                        EvidenceChunk.source_document == ec_row.source_document,
-                        EvidenceChunk.case_id == ec_row.case_id,
-                        EvidenceChunk.id > ec_row.id,
-                    )
-                    .order_by(EvidenceChunk.id.asc())
-                    .limit(1)
+                next_row = (
+                    session.execute(
+                        select(_ec_table.c.content).where(
+                            _ec_table.c.source_document == source_document,
+                            _ec_table.c.case_id == case_id,
+                            _ec_table.c.id > chunk_id,
+                        ).order_by(_ec_table.c.id.asc()).limit(1)
+                    ).first()
                 )
-
-                prev_chunk = session.execute(prev_stmt).scalar_one_or_none()
-                next_chunk = session.execute(next_stmt).scalar_one_or_none()
 
                 snippet = EvidenceSnippet(
-                    source_document=ec_row.source_document,
+                    source_document=source_document,
                     case_id=planner_resp.case_id,
                     score=float(score),
-                    chunk_before=prev_chunk.content if prev_chunk else None,
-                    chunk=ec_row.content,
-                    chunk_after=next_chunk.content if next_chunk else None,
+                    chunk_before=prev_row[0] if prev_row else None,
+                    chunk=content,
+                    chunk_after=next_row[0] if next_row else None,
                 )
                 evidence_items.append(snippet)
 

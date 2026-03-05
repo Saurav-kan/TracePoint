@@ -1,0 +1,14 @@
+Forensic Server Log: AETHER-01 (Redacted)
+Timestamp: 2026-03-04
+
+[23:42:10] ssh-d[4421]: Invalid user 'admin' from 192.168.1.104 port 55212
+[23:42:15] ssh-d[4421]: Invalid user 'support' from 192.168.1.104 port 55214
+[23:43:01] ssh-d[4421]: Accepted password for aris_admin from 192.168.1.55 port 44322 ssh2
+[23:43:15] system-auth: Session opened for user aris_admin by (uid=0)
+[23:44:02] kernel: [USB] New device found, idVendor=0930, idProduct=6545 (Toshiba Hayabusa 16GB)
+[23:44:05] mount: /dev/sdb1 mounted on /media/usb_internal
+[23:45:12] ./payload.sh --target=INFINITE_PULSE_CORE --replace --silent
+[23:45:55] rm -rf /var/log/secure (Permission Denied)
+[23:46:12] system-auth: Session closed for user aris_admin.
+[23:46:20] kernel: [USB] Device disconnected.
+[23:46:30] ALARM: File integrity check FAILED for /data/art/main_piece.nfm

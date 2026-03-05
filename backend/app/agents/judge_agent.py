@@ -1,17 +1,16 @@
 """Judge agent: synthesize research evidence into a verdict.
 
-This first iteration is intentionally simple and deterministic: it does
-not call an external LLM yet. Instead, it inspects the research results,
-marks questions as sufficiently or insufficiently supported, extracts
-basic facts, and produces an aggregate verdict. The structure is
-designed so that an LLM-powered implementation can be plugged in later
-without breaking the public interface.
+Supports heuristic (no LLM) and LLM modes. When JUDGE_PROVIDER is groq or
+siliconflow, uses a two-phase LLM workflow: per-task assessment then overall
+verdict. When JUDGE_PROVIDER is none, uses deterministic heuristics.
 """
 
 from __future__ import annotations
 
+import json
 from typing import List
 
+from app.config import JUDGE_FINAL_VIEW_CHUNKS, JUDGE_PROVIDER
 from app.db.models import Case
 from app.schemas.judge import (
     JudgeOverallVerdict,
@@ -19,20 +18,38 @@ from app.schemas.judge import (
     JudgeTaskAssessment,
     JudgeTaskFact,
 )
-from app.schemas.research import ResearchResponse, ResearchTaskResult
+from app.schemas.research import EvidenceSnippet, ResearchResponse, ResearchTaskResult
+
+from app.agents.judge_llm import judge_llm_completion
+from app.agents import judge_templates
+
+
+def _format_evidence_snippet(snippet: EvidenceSnippet) -> str:
+    """Format a single snippet as [source] before | chunk | after."""
+    parts = []
+    if snippet.chunk_before:
+        parts.append(snippet.chunk_before.strip())
+    parts.append(snippet.chunk.strip())
+    if snippet.chunk_after:
+        parts.append(snippet.chunk_after.strip())
+    body = " | ".join(parts)
+    source = snippet.source_document or "unknown"
+    return f"[{source}]\n{body}"
+
+
+def _format_evidence_for_task(task: ResearchTaskResult) -> str:
+    """Format all evidence snippets for a task as a block for the prompt."""
+    lines = []
+    for i, s in enumerate(task.evidence):
+        lines.append(f"--- Snippet {i} ---")
+        lines.append(_format_evidence_snippet(s))
+    return "\n".join(lines) if lines else "(No evidence)"
 
 
 def _build_task_assessment(
     task_index: int, task: ResearchTaskResult, claim: str
 ) -> JudgeTaskAssessment:
-    """Create a simple heuristic assessment for a single research task.
-
-    Heuristics:
-    - If there is no evidence, mark the task as insufficient.
-    - If there is at least one evidence snippet, consider the task
-      sufficiently supported and create one fact per snippet that
-      supports the claim.
-    """
+    """Create a heuristic assessment (no LLM) for a single research task."""
     if not task.evidence:
         return JudgeTaskAssessment(
             question_text=task.question_text,
@@ -45,11 +62,9 @@ def _build_task_assessment(
 
     key_facts: List[JudgeTaskFact] = []
     for idx, snippet in enumerate(task.evidence):
-        # Truncate the chunk for a concise fact description.
         snippet_text = snippet.chunk.strip()
         if len(snippet_text) > 240:
             snippet_text = snippet_text[:237].rstrip() + "..."
-
         fact_description = (
             f"Evidence snippet {idx} from {snippet.source_document or 'unknown source'}: "
             f"{snippet_text}"
@@ -63,15 +78,13 @@ def _build_task_assessment(
             )
         )
 
-    answer = (
-        "Available evidence snippets provide at least some support relevant to this question. "
-        "A more sophisticated judge agent could weigh reliability and contradictions, but this "
-        "baseline assumes the retrieved snippets are supportive."
-    )
-
     return JudgeTaskAssessment(
         question_text=task.question_text,
-        answer=answer,
+        answer=(
+            "Available evidence snippets provide at least some support relevant to this question. "
+            "A more sophisticated judge agent could weigh reliability and contradictions, but this "
+            "baseline assumes the retrieved snippets are supportive."
+        ),
         sufficient_evidence=True,
         confidence=0.5,
         key_facts=key_facts,
@@ -79,10 +92,60 @@ def _build_task_assessment(
     )
 
 
+async def _build_task_assessment_llm(
+    task_index: int,
+    task: ResearchTaskResult,
+    claim: str,
+    case_brief: str | None,
+) -> JudgeTaskAssessment:
+    """Use LLM to assess a single task. Fall back to heuristic on parse failure."""
+    if not task.evidence:
+        return _build_task_assessment(task_index, task, claim)
+
+    evidence_block = _format_evidence_for_task(task)
+    case_block = f"CASE SUMMARY:\n{case_brief}\n\n" if case_brief else ""
+    user_content = (
+        f"{case_block}CLAIM TO VERIFY:\n{claim}\n\n"
+        f"INVESTIGATIVE QUESTION:\n{task.question_text}\n\n"
+        f"EVIDENCE:\n{evidence_block}"
+    )
+
+    try:
+        raw = await judge_llm_completion(
+            judge_templates.JUDGE_TASK_SYSTEM_PROMPT,
+            user_content,
+            response_format={"type": "json_object"},
+        )
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return _build_task_assessment(task_index, task, claim)
+
+    key_facts: List[JudgeTaskFact] = []
+    for kf in data.get("key_facts", []):
+        if isinstance(kf, dict) and "description" in kf:
+            key_facts.append(
+                JudgeTaskFact(
+                    description=str(kf["description"]),
+                    supports_claim=bool(kf.get("supports_claim", True)),
+                    source_task_index=task_index,
+                    evidence_indices=[],
+                )
+            )
+
+    return JudgeTaskAssessment(
+        question_text=task.question_text,
+        answer=str(data.get("answer", "No answer provided.")),
+        sufficient_evidence=bool(data.get("sufficient_evidence", False)),
+        confidence=float(data.get("confidence", 0.5)),
+        key_facts=key_facts,
+        notes=str(data["notes"]) if data.get("notes") else None,
+    )
+
+
 def _build_overall_verdict(
     claim: str, task_assessments: List[JudgeTaskAssessment]
 ) -> JudgeOverallVerdict:
-    """Aggregate per-task assessments into a coarse overall verdict."""
+    """Heuristic overall verdict (no LLM)."""
     if not task_assessments:
         return JudgeOverallVerdict(
             claim=claim,
@@ -93,39 +156,129 @@ def _build_overall_verdict(
         )
 
     supported = [t for t in task_assessments if t.sufficient_evidence]
-    unsupported = [t for t in task_assessments if not t.sufficient_evidence]
-
     if not supported:
-        verdict = "uncertain"
-        rationale = (
-            "None of the investigative questions had sufficient evidence, so the claim "
-            "cannot be confidently verified or falsified."
-        )
-    else:
-        # For now, if we have at least one supported task, lean toward likely_true.
-        verdict = "likely_true"
-        rationale = (
-            "At least one investigative question had supporting evidence. A more advanced "
-            "judge would consider reliability and contradictions, but this baseline treats "
-            "supported tasks as leaning the claim toward being true."
+        return JudgeOverallVerdict(
+            claim=claim,
+            verdict="uncertain",
+            rationale=(
+                "None of the investigative questions had sufficient evidence, so the claim "
+                "cannot be confidently verified or falsified."
+            ),
+            supporting_facts=[],
+            contradicting_facts=[],
         )
 
     supporting_facts: List[JudgeTaskFact] = []
-    contradicting_facts: List[JudgeTaskFact] = []
     for ta in supported:
         supporting_facts.extend(ta.key_facts)
-    # This baseline does not derive explicit contradicting facts yet.
 
     return JudgeOverallVerdict(
         claim=claim,
-        verdict=verdict,
-        rationale=rationale,
+        verdict="likely_true",
+        rationale=(
+            "At least one investigative question had supporting evidence. A more advanced "
+            "judge would consider reliability and contradictions, but this baseline treats "
+            "supported tasks as leaning the claim toward being true."
+        ),
         supporting_facts=supporting_facts,
-        contradicting_facts=contradicting_facts,
+        contradicting_facts=[],
     )
 
 
-def run_judge(
+def _format_assessments_for_overall(
+    task_assessments: List[JudgeTaskAssessment],
+) -> str:
+    """Format per-task assessments for the overall verdict prompt."""
+    lines = []
+    for i, ta in enumerate(task_assessments):
+        lines.append(f"--- Task {i}: {ta.question_text} ---")
+        lines.append(f"Answer: {ta.answer}")
+        lines.append(f"Sufficient evidence: {ta.sufficient_evidence}")
+        lines.append(f"Confidence: {ta.confidence}")
+        for kf in ta.key_facts:
+            lines.append(f"  Fact: {kf.description} (supports_claim={kf.supports_claim})")
+        if ta.notes:
+            lines.append(f"Notes: {ta.notes}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def _format_chunks_for_overall(research_resp: ResearchResponse) -> str:
+    """Format all evidence chunks for the overall verdict (if JUDGE_FINAL_VIEW_CHUNKS)."""
+    lines = []
+    for ti, task in enumerate(research_resp.tasks):
+        lines.append(f"--- Task {ti}: {task.question_text} ---")
+        lines.append(_format_evidence_for_task(task))
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+async def _build_overall_verdict_llm(
+    claim: str,
+    task_assessments: List[JudgeTaskAssessment],
+    research_resp: ResearchResponse,
+    case_brief: str | None,
+) -> JudgeOverallVerdict:
+    """Use LLM for overall verdict. Fall back to heuristic on parse failure."""
+    assessments_block = _format_assessments_for_overall(task_assessments)
+    case_block = f"CASE SUMMARY:\n{case_brief}\n\n" if case_brief else ""
+
+    user_content = (
+        f"{case_block}CLAIM TO VERIFY:\n{claim}\n\n"
+        f"PER-TASK ASSESSMENTS:\n{assessments_block}"
+    )
+
+    if JUDGE_FINAL_VIEW_CHUNKS:
+        chunks_block = _format_chunks_for_overall(research_resp)
+        user_content += f"\n\nRAW EVIDENCE CHUNKS:\n{chunks_block}"
+
+    try:
+        raw = await judge_llm_completion(
+            judge_templates.JUDGE_OVERALL_SYSTEM_PROMPT,
+            user_content,
+            response_format={"type": "json_object"},
+        )
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return _build_overall_verdict(claim, task_assessments)
+
+    supporting: List[JudgeTaskFact] = []
+    for kf in data.get("supporting_facts", []):
+        if isinstance(kf, dict) and "description" in kf:
+            supporting.append(
+                JudgeTaskFact(
+                    description=str(kf["description"]),
+                    supports_claim=True,
+                    source_task_index=0,
+                    evidence_indices=[],
+                )
+            )
+    contradicting: List[JudgeTaskFact] = []
+    for kf in data.get("contradicting_facts", []):
+        if isinstance(kf, dict) and "description" in kf:
+            contradicting.append(
+                JudgeTaskFact(
+                    description=str(kf["description"]),
+                    supports_claim=False,
+                    source_task_index=0,
+                    evidence_indices=[],
+                )
+            )
+
+    verdict_raw = str(data.get("verdict", "uncertain")).lower()
+    if verdict_raw not in ("true", "likely_true", "uncertain", "likely_false", "false"):
+        verdict_raw = "uncertain"
+
+    return JudgeOverallVerdict(
+        claim=claim,
+        verdict=verdict_raw,
+        rationale=str(data.get("rationale", "No rationale provided.")),
+        supporting_facts=supporting,
+        contradicting_facts=contradicting,
+    )
+
+
+async def run_judge(
     research_resp: ResearchResponse,
     case: Case | None = None,
     *,
@@ -133,24 +286,36 @@ def run_judge(
 ) -> JudgeResponse:
     """Run the judge agent over a ResearchResponse and optional Case.
 
-    This baseline implementation:
-    - Produces a JudgeTaskAssessment for each research task.
-    - Marks tasks with no evidence as insufficient.
-    - Aggregates assessments into a coarse overall verdict.
-    - Does not yet perform an automatic refinement loop; instead it can
-      emit a refinement_suggestion string when overall evidence is weak.
+    When JUDGE_PROVIDER is groq or siliconflow, uses LLM for per-task and
+    overall verdict. When JUDGE_PROVIDER is none, uses heuristic logic.
     """
-    task_assessments: List[JudgeTaskAssessment] = []
-    for idx, task in enumerate(research_resp.tasks):
-        task_assessments.append(_build_task_assessment(idx, task, research_resp.fact_to_check))
+    case_brief = case.case_brief_text if case else None
 
-    overall_verdict = _build_overall_verdict(
-        claim=research_resp.fact_to_check,
-        task_assessments=task_assessments,
-    )
+    if JUDGE_PROVIDER in ("groq", "siliconflow"):
+        # LLM path: Phase 1 per-task, Phase 2 overall
+        task_assessments: List[JudgeTaskAssessment] = []
+        for idx, task in enumerate(research_resp.tasks):
+            ta = await _build_task_assessment_llm(
+                idx, task, research_resp.fact_to_check, case_brief
+            )
+            task_assessments.append(ta)
 
-    # Simple refinement heuristic: if all tasks lack sufficient evidence,
-    # suggest that additional planner/research passes may be needed.
+        overall_verdict = await _build_overall_verdict_llm(
+            research_resp.fact_to_check,
+            task_assessments,
+            research_resp,
+            case_brief,
+        )
+    else:
+        # Heuristic path
+        task_assessments = [
+            _build_task_assessment(idx, task, research_resp.fact_to_check)
+            for idx, task in enumerate(research_resp.tasks)
+        ]
+        overall_verdict = _build_overall_verdict(
+            research_resp.fact_to_check, task_assessments
+        )
+
     refinement_suggestion = None
     if all(not ta.sufficient_evidence for ta in task_assessments):
         refinement_suggestion = (
@@ -167,4 +332,3 @@ def run_judge(
         refinement_performed=False,
         refinement_suggestion=refinement_suggestion,
     )
-

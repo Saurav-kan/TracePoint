@@ -133,7 +133,7 @@ def run_research_stage(planner_resp: PlannerResponse, *, quiet: bool = False) ->
     return run_research(planner_resp)
 
 
-def run_judge_stage(
+async def run_judge_stage(
     research_resp: ResearchResponse, *, quiet: bool = False
 ) -> JudgeResponse:
     """Run judge agent. Returns JudgeResponse."""
@@ -144,7 +144,7 @@ def run_judge_stage(
         case = session.get(Case, str(research_resp.case_id))
     finally:
         session.close()
-    return run_judge(research_resp, case=case)
+    return await run_judge(research_resp, case=case)
 
 
 def _validate_args(args: argparse.Namespace) -> None:
@@ -275,7 +275,7 @@ async def _main_async(args: argparse.Namespace) -> None:
                 print("No ResearchResponse available for judge stage.", file=sys.stderr)
                 sys.exit(1)
 
-            result = run_judge_stage(research_resp, quiet=args.quiet)
+            result = await run_judge_stage(research_resp, quiet=args.quiet)
 
     if result is not None:
         out = result.model_dump_json(indent=2)

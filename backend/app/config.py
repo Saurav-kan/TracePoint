@@ -47,6 +47,24 @@ RESEARCH_TOP_K = int(os.getenv("RESEARCH_TOP_K", "5"))
 # PLANNER_PROVIDER can be: "gemini" (default), "openai", or "groq"
 PLANNER_PROVIDER = os.getenv("PLANNER_PROVIDER", "gemini").lower()
 
+# Judge agent configuration
+# JUDGE_PROVIDER: "groq" | "siliconflow" | "none" (none = heuristic only, no LLM)
+JUDGE_PROVIDER = os.getenv("JUDGE_PROVIDER", "groq").lower()
+# Groq judge (reuses GROQ_API_KEY, GROQ_BASE_URL from planner)
+GROQ_JUDGE_MODEL = os.getenv("GROQ_JUDGE_MODEL", "gpt-oss-120b")
+# SiliconFlow judge (OpenAI-compatible API)
+SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY", "")
+SILICONFLOW_BASE_URL = os.getenv(
+    "SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1"
+)
+SILICONFLOW_JUDGE_MODEL = os.getenv(
+    "SILICONFLOW_JUDGE_MODEL", "Qwen/Qwen3-VL-30B-A3B-Thinking"
+)
+# If true, final verdict LLM sees raw evidence chunks; if false, only sub-answers
+JUDGE_FINAL_VIEW_CHUNKS = (
+    os.getenv("JUDGE_FINAL_VIEW_CHUNKS", "false").lower() == "true"
+)
+
 # Default evidence labels used when a case has no ingested evidence yet.
 # These provide a small global taxonomy for the planner to fall back on.
 DEFAULT_EVIDENCE_LABELS = [

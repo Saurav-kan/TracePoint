@@ -1,0 +1,15 @@
+Case Summary: The Midnight Glitch
+
+On March 4th, at approximately 11:45 PM, the "Neo-Vanguard" Digital Art Gallery experienced a catastrophic system breach. The gallery's centerpiece, a unique generative NFT masterpiece titled "The Infinite Pulse," valued at over $2.5 million, was replaced by a flickering static image.
+
+Preliminary findings:
+- System breach detected at 23:45.
+- Main art server "AETHER-01" logs show unauthorized root access using 'aris_admin' credentials.
+- Security cameras in the server room experienced a 30-second loop.
+- A physical security token was missing from the curator's office.
+
+Relevant People:
+- Sarah Vane: Lead IT Engineer. Responsible for the gallery's digital infrastructure and blockchain security.
+- Dr. Aris: Head Curator. Oversees the art collection and holds high-level administrative access.
+- Marcus Thorne: Security Guard on duty. Responsible for physical patrols and monitoring surveillance feeds.
+- Officer J. Miller: Lead Forensic Investigator from the Cyber-Crimes Division.

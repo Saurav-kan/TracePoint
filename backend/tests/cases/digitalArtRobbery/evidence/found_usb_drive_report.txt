@@ -1,0 +1,13 @@
+Evidence Report: Item #TP-0042
+Description: USB Drive (Found in server room floor, near Rack 4)
+
+Physical Characteristics:
+- Brand: Toshiba Hayabusa (Blue casing)
+- Capacity: 16GB
+- Serial Number: 4422-991A-XB
+
+Initial Analysis:
+- The drive contains a directory named "SCRIPTS" with several obfuscated Bash files.
+- One file, "inject.sh", contains the string "property_of_vane_it".
+- Traces of high-grade electronic grease found on the USB connector.
+- Fingerprint analysis: Partial match found for Sarah Vane.
