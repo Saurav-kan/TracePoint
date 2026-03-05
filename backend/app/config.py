@@ -46,3 +46,14 @@ RESEARCH_TOP_K = int(os.getenv("RESEARCH_TOP_K", "5"))
 # Provider switches
 # PLANNER_PROVIDER can be: "gemini" (default), "openai", or "groq"
 PLANNER_PROVIDER = os.getenv("PLANNER_PROVIDER", "gemini").lower()
+
+# Default evidence labels used when a case has no ingested evidence yet.
+# These provide a small global taxonomy for the planner to fall back on.
+DEFAULT_EVIDENCE_LABELS = [
+    "witness",
+    "forensic_log",
+    "found_usb_drive",
+    "security_interview",
+    "ransom_note",
+    "inventory_log",
+]

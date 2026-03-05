@@ -8,7 +8,9 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
+from app.config import DEFAULT_EVIDENCE_LABELS
 from app.db.models import Case
+from app.db.queries import get_case_labels
 from app.schemas.planner import InvestigativeType, PlannerResponse
 
 
@@ -81,6 +83,23 @@ def validate_planner_output(resp: PlannerResponse, case: Case) -> GatekeeperResu
             reasons.append(f"Task {idx} vector_query too short; needs a full sentence.")
         if not task.metadata_filter:
             reasons.append(f"Task {idx} missing metadata_filter.")
+
+    # 3b. Metadata filter keys and label values
+    allowed_labels = get_case_labels(resp.case_id) or DEFAULT_EVIDENCE_LABELS
+    allowed_keys = {"label", "source_document"}
+    for idx, task in enumerate(resp.tasks):
+        for item in task.metadata_filter:
+            if item.key not in allowed_keys:
+                reasons.append(
+                    f"Task {idx} metadata_filter key '{item.key}' is not allowed; "
+                    f"must be one of: {', '.join(sorted(allowed_keys))}."
+                )
+            if item.key == "label" and item.value not in allowed_labels:
+                joined = ", ".join(sorted(allowed_labels)) or "<none>"
+                reasons.append(
+                    f"Task {idx} uses unknown label '{item.value}'; "
+                    f"allowed labels for this case: {joined}."
+                )
 
     # 4. Peripheral detail requirement
     if not _has_peripheral_task(resp):

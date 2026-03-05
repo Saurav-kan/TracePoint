@@ -1,5 +1,5 @@
 """Planner agent: generate investigative tasks for a case and claim."""
-from typing import Optional
+from typing import List, Optional
 import json
 
 from google import genai
@@ -7,6 +7,7 @@ from google.genai import types
 from openai import OpenAI
 
 from app.config import (
+    DEFAULT_EVIDENCE_LABELS,
     GOOGLE_API_KEY,
     PLANNER_MODEL,
     OPENAI_API_KEY,
@@ -19,6 +20,7 @@ from app.config import (
 from app.agents.friction_detector import detect_friction
 from app.agents import planner_templates
 from app.db.models import Case
+from app.db.queries import get_case_labels
 from app.schemas.planner import (
     FrictionSummary,
     PlannerRequest,
@@ -27,14 +29,19 @@ from app.schemas.planner import (
 )
 
 
-def _build_system_prompt() -> str:
-    """Build the system prompt using canonical templates."""
+def _build_system_prompt(allowed_labels: Optional[List[str]] = None) -> str:
+    """Build the system prompt using canonical templates.
+
+    If allowed_labels is provided, constrain metadata_filter label values
+    to that set for the current case; otherwise fall back to a small
+    global taxonomy.
+    """
     parts = [
         "You are a planner agent for a law-enforcement fact-checking system.",
         "You receive a case overview and a single fact to check.",
         "Your job is to propose exactly five investigative tasks.",
         "Each task must include: type, question_text, vector_query, metadata_filter.",
-        "metadata_filter must be a list of {key, value} objects (e.g. {\"key\": \"label\", \"value\": \"gps_log\"}), not a raw object.",
+        "metadata_filter must be a list of {key, value} objects (e.g. {\"key\": \"label\", \"value\": \"forensic_log\"}), not a raw object.",
         "Types must be one of: VERIFICATION, IMPOSSIBILITY, ENVIRONMENTAL,",
         "NEGATIVE_PROOF, RECALL_STRESS.",
         "Vector queries must be full descriptive sentences suitable for an",
@@ -52,9 +59,28 @@ def _build_system_prompt() -> str:
         planner_templates.ENVIRONMENTAL_TEMPLATE,
         planner_templates.NEGATIVE_PROOF_TEMPLATE,
         planner_templates.RECALL_STRESS_TEMPLATE,
-        "You must return ONLY a JSON object with a single top-level key 'tasks'.",
-        "'tasks' must be a list of exactly five objects, each with fields: type, question_text, vector_query, metadata_filter.",
     ]
+
+    labels = allowed_labels or DEFAULT_EVIDENCE_LABELS
+    if labels:
+        label_instructions = [
+            "For metadata_filter, when you filter by evidence type, you MUST use:",
+            "  {\"key\": \"label\", \"value\": \"<one of the allowed labels below>\"}.",
+            "Do NOT invent new label values. Only choose from this list:",
+        ]
+        for lbl in labels:
+            label_instructions.append(f"- {lbl}")
+        label_instructions.append(
+            "Every task's metadata_filter must include at least one such label filter."
+        )
+        parts.extend(label_instructions)
+
+    parts.extend(
+        [
+            "You must return ONLY a JSON object with a single top-level key 'tasks'.",
+            "'tasks' must be a list of exactly five objects, each with fields: type, question_text, vector_query, metadata_filter.",
+        ]
+    )
     return "\n\n".join(parts)
 
 
@@ -78,7 +104,11 @@ async def run_planner(case: Case, req: PlannerRequest) -> PlannerResponse:
     )
     search_boundary = _derive_search_boundary(case)
 
-    system_prompt = _build_system_prompt()
+    # Case-scoped evidence labels for metadata_filter guidance
+    case_labels: List[str] = get_case_labels(req.case_id)
+    allowed_labels: List[str] = case_labels or DEFAULT_EVIDENCE_LABELS
+
+    system_prompt = _build_system_prompt(allowed_labels)
 
     user_content = (
         f"CASE OVERVIEW:\n{case.case_brief_text}\n\n"
