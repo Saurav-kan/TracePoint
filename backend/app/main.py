@@ -1,15 +1,25 @@
 """FastAPI application entry point."""
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.db.session import init_db
 from app.routers import cases
 from app.routers import ingest
 from app.routers import planner
 from app.routers import workflow
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
 app = FastAPI(
     title="TracePoint API",
     description="Fact-Checking RAG for law enforcement investigations",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

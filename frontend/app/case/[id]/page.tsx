@@ -1,18 +1,34 @@
 "use client";
 
-import { getCase, runWorkflow, type CaseDetailResponse, type JudgeResponse } from "@/lib/api";
+import {
+  getCase,
+  runWorkflow,
+  listBriefs,
+  addBrief,
+  type CaseBriefResponse,
+  type CaseDetailResponse,
+  type JudgeResponse,
+} from "@/lib/api";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 
 export default function CaseWorkspace() {
   const { id } = useParams();
   const [caseData, setCaseData] = useState<CaseDetailResponse | null>(null);
+  const [briefs, setBriefs] = useState<CaseBriefResponse[]>([]);
+  const [selectedBriefId, setSelectedBriefId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentClaim, setCurrentClaim] = useState("");
   const [verdict, setVerdict] = useState<JudgeResponse | null>(null);
+
+  const [showAddBrief, setShowAddBrief] = useState(false);
+  const [newBriefText, setNewBriefText] = useState("");
+  const [newBriefTitle, setNewBriefTitle] = useState("");
+  const [isAddingBrief, setIsAddingBrief] = useState(false);
+  const addBriefFileRef = useRef<HTMLInputElement>(null);
 
   const fetchCase = useCallback(async () => {
     if (!id || typeof id !== "string") return;
@@ -29,9 +45,28 @@ export default function CaseWorkspace() {
     }
   }, [id]);
 
+  const fetchBriefs = useCallback(async () => {
+    if (!id || typeof id !== "string") return;
+    try {
+      const list = await listBriefs(id);
+      setBriefs(list);
+      setSelectedBriefId((prev) =>
+        list.length > 0 && (prev === null || !list.some((b) => b.id === prev))
+          ? list[0].id
+          : prev
+      );
+    } catch (e) {
+      console.error("Failed to list briefs:", e);
+    }
+  }, [id]);
+
   useEffect(() => {
     fetchCase();
   }, [fetchCase]);
+
+  useEffect(() => {
+    if (caseData) fetchBriefs();
+  }, [caseData, fetchBriefs]);
 
   useEffect(() => {
     if (!id || typeof id !== "string") return;
@@ -53,7 +88,11 @@ export default function CaseWorkspace() {
     setIsAnalyzing(true);
     setError(null);
     try {
-      const result = await runWorkflow(id, currentClaim);
+      const result = await runWorkflow(
+        id,
+        currentClaim,
+        selectedBriefId ?? undefined
+      );
       setVerdict(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Fact-check failed");
@@ -61,6 +100,44 @@ export default function CaseWorkspace() {
       setIsAnalyzing(false);
     }
   };
+
+  const handleAddBrief = async (file?: File) => {
+    if (!id || typeof id !== "string") return;
+    const hasText = newBriefText.trim().length > 0;
+    const hasFile = file && file.size > 0;
+    if (!hasText && !hasFile) return;
+
+    setIsAddingBrief(true);
+    try {
+      if (file) {
+        await addBrief(id, {
+          file,
+          title: newBriefTitle || file.name.replace(/\.[^/.]+$/, ""),
+        });
+      } else {
+        await addBrief(id, {
+          briefText: newBriefText,
+          title: newBriefTitle || "Case Summary",
+        });
+      }
+      setNewBriefText("");
+      setNewBriefTitle("");
+      setShowAddBrief(false);
+      await fetchBriefs();
+    } catch (e) {
+      console.error("Failed to add brief:", e);
+    } finally {
+      setIsAddingBrief(false);
+    }
+  };
+
+  const handleAddBriefFile = (f: File) => {
+    if (!/\.(md|txt|markdown)$/i.test(f.name)) return;
+    handleAddBrief(f);
+  };
+
+  const selectedBrief = briefs.find((b) => b.id === selectedBriefId);
+  const displayBrief = selectedBrief?.brief_text ?? caseData?.brief ?? "";
 
   if (loading) {
     return (
@@ -92,44 +169,132 @@ export default function CaseWorkspace() {
   const v = verdict?.overall_verdict;
 
   return (
-    <main className="min-h-screen p-6 forensic-grid pb-20">
-      <div className="max-w-7xl mx-auto grid grid-cols-12 gap-6">
-        {/* Left Sidebar: Case Info & Evidence */}
+    <main className="min-h-screen p-8 forensic-grid">
+      <div className="max-w-7xl mx-auto grid grid-cols-12 gap-8 animate-fade-in">
         <aside className="col-span-12 lg:col-span-4 space-y-6">
           <Link
             href="/"
-            className="inline-flex gap-2 text-[10px] font-mono text-accent hover:underline mb-4"
+            className="inline-flex gap-2 text-[10px] font-mono text-accent hover:underline mb-4 uppercase tracking-widest"
           >
-            &lt; RETURN_TO_DATABASE
+            &lt; Back to Dashboard
           </Link>
 
-          <section className="glass-panel p-6 space-y-4">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold glow-text tracking-tight">
+          <section className="glass-panel p-6 rounded-2xl space-y-6">
+            <div className="flex justify-between items-start">
+              <h2 className="text-xl font-bold text-white leading-tight">
                 {caseData.title}
               </h2>
-              <span className="text-[10px] font-mono text-success border border-success/30 px-2 py-0.5 rounded uppercase">
-                {caseData.status}
+              <span
+                className={`text-[10px] font-mono px-2 py-0.5 rounded border ${caseData.status === "active" ? "text-success border-success/20 bg-success/5" : "text-zinc-500 border-zinc-800 bg-zinc-900"}`}
+              >
+                {caseData.status.toUpperCase()}
               </span>
             </div>
-            <p className="text-sm text-zinc-400 font-mono leading-relaxed">
-              {caseData.brief}
-            </p>
+
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <h3 className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
+                  Case Summary
+                </h3>
+                <button
+                  onClick={() => setShowAddBrief(!showAddBrief)}
+                  className="text-[10px] font-mono text-accent hover:underline"
+                >
+                  {showAddBrief ? "CANCEL" : "+ ADD SUMMARY"}
+                </button>
+              </div>
+
+              {briefs.length > 0 && (
+                <select
+                  value={selectedBriefId ?? ""}
+                  onChange={(e) =>
+                    setSelectedBriefId(e.target.value ? Number(e.target.value) : null)
+                  }
+                  className="w-full bg-black/20 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-300 outline-none focus:border-accent/40"
+                >
+                  {briefs.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.title} {b.source_file ? `(${b.source_file})` : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {showAddBrief ? (
+                <div className="space-y-3 p-4 bg-black/20 rounded-xl border border-zinc-800">
+                  <input
+                    type="text"
+                    value={newBriefTitle}
+                    onChange={(e) => setNewBriefTitle(e.target.value)}
+                    placeholder="Title (optional)"
+                    className="w-full bg-black/20 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-300 outline-none focus:border-accent/40"
+                  />
+                  <div
+                    className="min-h-[120px] border-2 border-dashed border-zinc-800 rounded-lg p-3 flex flex-col gap-2"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) handleAddBriefFile(f);
+                    }}
+                  >
+                    <textarea
+                      value={newBriefText}
+                      onChange={(e) => setNewBriefText(e.target.value)}
+                      placeholder="Paste summary or drop .md / .txt file"
+                      className="flex-1 min-h-[80px] bg-transparent text-xs text-zinc-300 outline-none resize-none"
+                    />
+                    <div className="flex gap-2">
+                      <input
+                        ref={addBriefFileRef}
+                        type="file"
+                        accept=".md,.txt,.markdown"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleAddBriefFile(f);
+                          e.target.value = "";
+                        }}
+                      />
+                      <button
+                        onClick={() => addBriefFileRef.current?.click()}
+                        className="text-[10px] font-mono text-accent hover:underline"
+                      >
+                        BROWSE FILE
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleAddBrief()}
+                    disabled={
+                      (!newBriefText.trim() && true) || isAddingBrief
+                    }
+                    className="w-full py-2 bg-accent/20 text-accent text-xs font-semibold rounded-lg hover:bg-accent/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isAddingBrief ? "Adding…" : "Add Summary"}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-400 leading-relaxed max-h-[200px] overflow-y-auto custom-scrollbar pr-1">
+                  {displayBrief || "No summary selected."}
+                </p>
+              )}
+            </div>
           </section>
 
           <section className="space-y-4">
-            <h3 className="text-xs font-mono text-zinc-500 uppercase tracking-widest border-l-2 border-accent pl-2">
-              Evidence_Inventory [{caseData.evidence.length}]
+            <h3 className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest px-2">
+              Evidence Inventory ({caseData.evidence.length})
             </h3>
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
               {caseData.evidence.map((ev, i) => (
                 <div
                   key={i}
-                  className="glass-panel p-4 border-l-4 border-l-accent/50 hover:border-l-accent transition-all cursor-crosshair"
+                  className="glass-panel p-4 rounded-xl border-l-4 border-l-accent/40 hover:border-l-accent transition-all"
                 >
                   <div className="flex justify-between items-start mb-2">
-                    <span className="text-[10px] font-mono text-zinc-400 capitalize">
-                      {ev.label}
+                    <span className="text-[10px] font-mono text-zinc-500 uppercase">
+                      {ev.label.replace("_", " ")}
                     </span>
                     <span
                       className={`text-[10px] font-mono ${ev.reliability > 0.9 ? "text-success" : "text-warning"}`}
@@ -137,10 +302,10 @@ export default function CaseWorkspace() {
                       REL:{(ev.reliability * 100).toFixed(0)}%
                     </span>
                   </div>
-                  <h4 className="text-sm font-bold text-zinc-200">
+                  <h4 className="text-sm font-semibold text-zinc-200 mb-1">
                     {ev.source_document || "Document"}
                   </h4>
-                  <p className="text-[10px] text-zinc-500 mt-1 line-clamp-2">
+                  <p className="text-xs text-zinc-500 line-clamp-2 leading-relaxed">
                     {ev.summary}
                   </p>
                 </div>
@@ -149,148 +314,148 @@ export default function CaseWorkspace() {
           </section>
         </aside>
 
-        {/* Main Workspace: Fact-Check & Verdict */}
-        <div className="col-span-12 lg:col-span-8 space-y-6">
-          <section className="glass-panel p-8 relative overflow-hidden">
+        <div className="col-span-12 lg:col-span-8 space-y-8">
+          <section className="glass-panel p-8 rounded-2xl relative overflow-hidden">
             {isAnalyzing && (
-              <div className="absolute inset-0 bg-accent/5 flex flex-col items-center justify-center backdrop-blur-sm z-10">
-                <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                <span className="mt-4 font-mono text-accent text-xs animate-pulse">
-                  RUNNING_PLANNER_AGENT...
+              <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center backdrop-blur-sm z-10">
+                <div className="w-12 h-12 border-4 border-accent/10 border-t-accent rounded-full animate-spin" />
+                <span className="mt-4 font-mono text-accent text-xs animate-pulse tracking-widest uppercase">
+                  Analyzing Evidence…
                 </span>
               </div>
             )}
 
             <div className="space-y-6">
               <div className="flex justify-between items-center">
-                <h3 className="text-xs font-mono text-accent uppercase tracking-widest">
-                  SUBMIT_CLAIM_FOR_VERIFICATION
+                <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">
+                  Verify Claim
                 </h3>
-                <span className="text-[10px] font-mono text-zinc-500">
-                  ENGINE: GEMINI_PRO_STATE_V1.2
-                </span>
+                {selectedBrief && (
+                  <span className="text-[10px] font-mono text-zinc-600">
+                    Using: {selectedBrief.title}
+                  </span>
+                )}
               </div>
 
-              <div className="relative">
-                <textarea
-                  value={currentClaim}
-                  onChange={(e) => setCurrentClaim(e.target.value)}
-                  placeholder="Example: The suspect was at the Harbor Pier at 11:30 PM..."
-                  className="w-full h-32 bg-background/50 border border-panel-border rounded-lg p-4 font-mono text-sm text-accent focus:border-accent/50 outline-none transition-all resize-none"
-                />
-                <div className="absolute bottom-4 right-4 text-[10px] font-mono text-zinc-600">
-                  INPUT_BUFFER.AUTO_SAVE: ON
-                </div>
-              </div>
+              <textarea
+                value={currentClaim}
+                onChange={(e) => setCurrentClaim(e.target.value)}
+                placeholder="Enter a claim to verify against evidence…"
+                className="w-full h-32 bg-black/20 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-300 outline-none focus:border-accent/40 placeholder:text-zinc-700 resize-none transition-all"
+              />
 
               {error && (
-                <p className="text-danger text-sm font-mono">{error}</p>
+                <div className="p-4 bg-danger/10 border border-danger/20 rounded-xl text-danger text-xs font-medium">
+                  {error}
+                </div>
               )}
 
               <button
                 onClick={handleAnalyze}
                 disabled={!currentClaim || isAnalyzing}
-                className="w-full py-4 bg-accent/10 border border-accent/30 text-accent font-mono text-sm uppercase tracking-tighter hover:bg-accent/20 disabled:opacity-30 disabled:pointer-events-none transition-all rounded-lg group"
+                className="w-full py-4 bg-accent text-white font-bold text-sm uppercase tracking-widest rounded-xl hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-accent/10"
               >
-                EXECUTE_FACT_CHECK_PROTOCOL{" "}
-                <span className="group-hover:translate-x-1 inline-block transition-transform">
-                  -&gt;
-                </span>
+                Run Fact-Check
               </button>
             </div>
           </section>
 
-          {/* Verdict / Evidence Synthesis */}
-          <section className="glass-panel p-8 space-y-6 min-h-[400px]">
-            <div className="flex justify-between items-center">
-              <h3 className="text-xs font-mono text-zinc-400 uppercase tracking-widest">
-                EVIDENCE_SYNTHESIS_MATRIX
+          <section className="glass-panel p-8 rounded-2xl space-y-8 min-h-[450px] flex flex-col">
+            <div className="flex justify-between items-center border-b border-white/5 pb-4">
+              <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">
+                Evidence Synthesis
               </h3>
-              <div className="flex gap-4">
-                <div className="flex items-center gap-2 text-[10px] font-mono text-success">
-                  <div className="w-2 h-2 rounded-full bg-success" /> CONSISTENT
+              <div className="flex gap-6">
+                <div className="flex items-center gap-2 text-[10px] font-mono text-success uppercase">
+                  <div className="w-2 h-2 rounded-full bg-success" /> Consistent
                 </div>
-                <div className="flex items-center gap-2 text-[10px] font-mono text-danger">
-                  <div className="w-2 h-2 rounded-full bg-danger" /> CONTRADICTION
+                <div className="flex items-center gap-2 text-[10px] font-mono text-danger uppercase">
+                  <div className="w-2 h-2 rounded-full bg-danger" /> Contradiction
                 </div>
               </div>
             </div>
 
-            <div className="relative min-h-[300px] border border-panel-border/30 rounded bg-background/40 flex flex-col p-6">
-              <div className="absolute inset-0 forensic-grid opacity-20 rounded pointer-events-none" />
+            {!verdict ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center opacity-30 space-y-4">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  className="w-12 h-12"
+                >
+                  <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-xs font-mono uppercase tracking-widest">
+                  Awaiting Analysis
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-8 animate-fade-in">
+                <div className="flex items-center gap-4">
+                  <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
+                    Verdict
+                  </span>
+                  <span
+                    className={`px-4 py-1.5 rounded-lg font-mono text-xs font-bold border ${
+                      v?.verdict === "true" || v?.verdict === "likely_true"
+                        ? "bg-success/10 text-success border-success/20"
+                        : v?.verdict === "false" || v?.verdict === "likely_false"
+                          ? "bg-danger/10 text-danger border-danger/20"
+                          : "bg-warning/10 text-warning border-warning/20"
+                    }`}
+                  >
+                    {v?.verdict.toUpperCase().replace("_", " ")}
+                  </span>
+                </div>
 
-              {!verdict ? (
-                <div className="text-center space-y-2 opacity-40 relative z-10">
-                  <div className="text-4xl font-mono text-zinc-600">[!]</div>
-                  <p className="text-[10px] font-mono text-zinc-500">
-                    AWAITING_INPUT_FOR_SPATIAL_MAPPING
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
+                    Rationale
+                  </h4>
+                  <p className="text-sm text-zinc-300 leading-relaxed">
+                    {v?.rationale}
                   </p>
                 </div>
-              ) : (
-                <div className="space-y-6 relative z-10">
-                  <div className="flex items-center gap-4">
-                    <span className="text-[10px] font-mono text-zinc-500">
-                      CLAIM:
-                    </span>
-                    <span className="text-sm text-zinc-300 font-mono">
-                      {verdict.fact_to_check}
-                    </span>
-                  </div>
 
-                  {v && (
-                    <>
-                      <div className="flex items-center gap-4">
-                        <span className="text-[10px] font-mono text-accent uppercase">
-                          VERDICT
-                        </span>
-                        <span
-                          className={`px-3 py-1 rounded font-mono text-sm font-bold ${
-                            v.verdict === "true" || v.verdict === "likely_true"
-                              ? "bg-success/20 text-success border border-success/50"
-                              : v.verdict === "false" || v.verdict === "likely_false"
-                                ? "bg-danger/20 text-danger border border-danger/50"
-                                : "bg-warning/20 text-warning border border-warning/50"
-                          }`}
-                        >
-                          {v.verdict.toUpperCase().replace("_", " ")}
-                        </span>
-                      </div>
-                      <p className="text-sm text-zinc-300 font-mono leading-relaxed">
-                        {v.rationale}
-                      </p>
-                      {v.supporting_facts.length > 0 && (
-                        <div>
-                          <h4 className="text-[10px] font-mono text-success uppercase mb-2">
-                            Supporting
-                          </h4>
-                          <ul className="space-y-1 text-xs text-zinc-400 font-mono">
-                            {v.supporting_facts.map((f, i) => (
-                              <li key={i} className="border-l-2 border-success/50 pl-2">
-                                {f.description}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {v.contradicting_facts.length > 0 && (
-                        <div>
-                          <h4 className="text-[10px] font-mono text-danger uppercase mb-2">
-                            Contradicting
-                          </h4>
-                          <ul className="space-y-1 text-xs text-zinc-400 font-mono">
-                            {v.contradicting_facts.map((f, i) => (
-                              <li key={i} className="border-l-2 border-danger/50 pl-2">
-                                {f.description}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {(v?.supporting_facts?.length ?? 0) > 0 && (
+                    <div className="space-y-4">
+                      <h4 className="text-[10px] font-mono text-success uppercase tracking-widest">
+                        Supporting Evidence
+                      </h4>
+                      <ul className="space-y-3">
+                        {v?.supporting_facts.map((f, i) => (
+                          <li
+                            key={i}
+                            className="text-xs text-zinc-400 border-l-2 border-success/30 pl-3 leading-relaxed"
+                          >
+                            {f.description}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {(v?.contradicting_facts?.length ?? 0) > 0 && (
+                    <div className="space-y-4">
+                      <h4 className="text-[10px] font-mono text-danger uppercase tracking-widest">
+                        Contradicting Evidence
+                      </h4>
+                      <ul className="space-y-3">
+                        {v?.contradicting_facts.map((f, i) => (
+                          <li
+                            key={i}
+                            className="text-xs text-zinc-400 border-l-2 border-danger/30 pl-3 leading-relaxed"
+                          >
+                            {f.description}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </section>
         </div>
       </div>

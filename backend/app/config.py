@@ -64,6 +64,12 @@ SILICONFLOW_JUDGE_MODEL = os.getenv(
 JUDGE_FINAL_VIEW_CHUNKS = (
     os.getenv("JUDGE_FINAL_VIEW_CHUNKS", "false").lower() == "true"
 )
+# If true, require every key_fact to have at least one valid evidence_indices entry
+JUDGE_GATEKEEPER_STRICT_LINKING = (
+    os.getenv("JUDGE_GATEKEEPER_STRICT_LINKING", "false").lower() == "true"
+)
+# Max judge retries when gatekeeper fails
+JUDGE_GATEKEEPER_RETRY_COUNT = int(os.getenv("JUDGE_GATEKEEPER_RETRY_COUNT", "2"))
 
 # Default evidence labels used when a case has no ingested evidence yet.
 # These provide a small global taxonomy for the planner to fall back on.

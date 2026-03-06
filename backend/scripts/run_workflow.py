@@ -14,6 +14,7 @@ _backend = Path(__file__).resolve().parent.parent
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
+from app.config import JUDGE_GATEKEEPER_RETRY_COUNT
 from app.agents.gatekeeper import GatekeeperResult, validate_planner_output
 from app.agents.planner_agent import run_planner
 from app.agents.research_agent import run_research
@@ -136,7 +137,7 @@ def run_research_stage(planner_resp: PlannerResponse, *, quiet: bool = False) ->
 async def run_judge_stage(
     research_resp: ResearchResponse, *, quiet: bool = False
 ) -> JudgeResponse:
-    """Run judge agent. Returns JudgeResponse."""
+    """Run judge agent with gatekeeper retry. Returns JudgeResponse."""
     if not quiet:
         print("Running judge...", file=sys.stderr)
     session = get_session()
@@ -144,7 +145,14 @@ async def run_judge_stage(
         case = session.get(Case, str(research_resp.case_id))
     finally:
         session.close()
-    return await run_judge(research_resp, case=case)
+    max_attempts = JUDGE_GATEKEEPER_RETRY_COUNT + 1
+    last_judge_resp = None
+    for _ in range(max_attempts):
+        judge_resp = await run_judge(research_resp, case=case)
+        last_judge_resp = judge_resp
+        if judge_resp.gatekeeper_passed:
+            return judge_resp
+    return last_judge_resp
 
 
 def _validate_args(args: argparse.Namespace) -> None:

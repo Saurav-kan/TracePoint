@@ -11,6 +11,9 @@ class PlannerRequest(BaseModel):
 
     case_id: UUID = Field(..., description="Case identifier to plan for")
     fact_to_check: str = Field(..., description="Natural language claim to verify or challenge")
+    brief_id: Optional[int] = Field(
+        None, description="If set, use this case brief instead of the case default"
+    )
 
 
 class FrictionSummary(BaseModel):

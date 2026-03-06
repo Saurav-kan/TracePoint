@@ -6,25 +6,24 @@
 }
 
 :root {
-  /* Core Forensic Palette */
-  --background: #05070a; /* Deep Charcoal/Black */
-  --foreground: #e1e7ef;
+  /* Clean Minimal Palette */
+  --background: #0f172a; /* Deep Slate */
+  --foreground: #f1f5f9;
   
-  --panel-bg: rgba(13, 17, 23, 0.8);
-  --panel-border: rgba(48, 54, 61, 1);
+  --panel-bg: rgba(30, 41, 59, 0.5);
+  --panel-border: rgba(51, 65, 85, 0.5);
   
-  --accent: #00f2ff; /* Forensic Cyan */
-  --accent-muted: rgba(0, 242, 255, 0.1);
+  --accent: #3b82f6; /* Professional Blue */
+  --accent-muted: rgba(59, 130, 246, 0.1);
   
-  --success: #00ff9d; /* Reliability Green */
-  --warning: #ffcc00; /* Anomaly Gold */
-  --danger: #ff4d4d;  /* Contradiction Red */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
   
-  --font-geist-sans: "Geist", sans-serif;
-  --font-geist-mono: "Geist Mono", monospace;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", monospace;
   
-  --card-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.5);
-  --glow-accent: 0 0 15px rgba(0, 242, 255, 0.3);
+  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
 @theme inline {
@@ -36,8 +35,8 @@
   --color-warning: var(--warning);
   --color-danger: var(--danger);
   
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
   
   --shadow-card: var(--card-shadow);
 }
@@ -51,37 +50,6 @@ body {
   overflow-x: hidden;
 }
 
-/* Scanline Effect Overlay */
-body::before {
-  content: " ";
-  display: block;
-  position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  right: 0;
-  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), 
-              linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.02));
-  z-index: 9999;
-  background-size: 100% 4px, 3px 100%;
-  pointer-events: none;
-  opacity: 0.3;
-}
-
-/* Subtle CRT Flicker */
-@keyframes flicker {
-  0% { opacity: 0.97; }
-  5% { opacity: 0.95; }
-  10% { opacity: 0.9; }
-  15% { opacity: 0.95; }
-  20% { opacity: 0.98; }
-  100% { opacity: 1; }
-}
-
-.crt-flicker {
-  animation: flicker 0.1s infinite;
-}
-
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -92,61 +60,31 @@ body::before {
   to { opacity: 1; transform: translateX(0); }
 }
 
-@keyframes pulse-accent {
-  0% { box-shadow: 0 0 0 0 rgba(0, 242, 255, 0.4); }
-  70% { box-shadow: 0 0 0 15px rgba(0, 242, 255, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(0, 242, 255, 0); }
-}
-
 .animate-fade-in {
-  animation: fadeIn 0.5s ease-out forwards;
+  animation: fadeIn 0.4s ease-out forwards;
 }
 
 .animate-slide-in {
-  animation: slideInRight 0.4s ease-out forwards;
-}
-
-.pulse-accent {
-  animation: pulse-accent 2s infinite;
+  animation: slideInRight 0.3s ease-out forwards;
 }
 
 .glass-panel {
-  background: rgba(13, 17, 23, 0.6);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
-  transition: all 0.3s ease;
+  background: var(--panel-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--card-shadow);
+  transition: all 0.2s ease;
 }
 
 .glass-panel:hover {
-  border-color: rgba(0, 242, 255, 0.2);
-  background: rgba(13, 17, 23, 0.8);
-}
-
-.glow-text {
-  text-shadow: 0 0 10px rgba(0, 242, 255, 0.5), 0 0 20px rgba(0, 242, 255, 0.2);
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
 .forensic-grid {
   background-image: 
-    linear-gradient(rgba(0, 242, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 242, 255, 0.03) 1px, transparent 1px);
-  background-size: 50px 50px;
-}
-
-.step-indicator {
-  position: relative;
-}
-
-.step-indicator::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.05);
-  z-index: 0;
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -158,10 +96,10 @@ body::before {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(0, 242, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 10px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 242, 255, 0.4);
+  background: rgba(255, 255, 255, 0.2);
 }

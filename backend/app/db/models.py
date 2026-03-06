@@ -47,6 +47,31 @@ class Case(Base):
     evidence_chunks: Mapped[list["EvidenceChunk"]] = relationship(
         back_populates="case", cascade="all, delete-orphan"
     )
+    briefs: Mapped[list["CaseBrief"]] = relationship(
+        back_populates="case", cascade="all, delete-orphan"
+    )
+
+
+class CaseBrief(Base):
+    """A case summary/brief variant for a case. Cases can have multiple briefs."""
+
+    __tablename__ = "case_briefs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    case_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("cases.case_id"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="Case Summary")
+    brief_text: Mapped[str] = mapped_column(Text, nullable=False)
+    brief_embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(1536), nullable=True
+    )
+    source_file: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    case: Mapped["Case"] = relationship(back_populates="briefs")
 
 
 class EvidenceChunk(Base):

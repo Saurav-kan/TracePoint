@@ -20,6 +20,7 @@ from app.schemas.judge import (
 )
 from app.schemas.research import EvidenceSnippet, ResearchResponse, ResearchTaskResult
 
+from app.agents.judge_gatekeeper import validate_judge_output
 from app.agents.judge_llm import judge_llm_completion
 from app.agents import judge_templates
 
@@ -120,15 +121,22 @@ async def _build_task_assessment_llm(
     except (json.JSONDecodeError, TypeError, KeyError):
         return _build_task_assessment(task_index, task, claim)
 
+    max_idx = len(task.evidence) - 1 if task.evidence else -1
     key_facts: List[JudgeTaskFact] = []
     for kf in data.get("key_facts", []):
         if isinstance(kf, dict) and "description" in kf:
+            raw_indices = kf.get("evidence_indices", [])
+            evidence_indices: List[int] = []
+            if isinstance(raw_indices, list) and max_idx >= 0:
+                for x in raw_indices:
+                    if isinstance(x, int) and 0 <= x <= max_idx:
+                        evidence_indices.append(x)
             key_facts.append(
                 JudgeTaskFact(
                     description=str(kf["description"]),
                     supports_claim=bool(kf.get("supports_claim", True)),
                     source_task_index=task_index,
-                    evidence_indices=[],
+                    evidence_indices=evidence_indices,
                 )
             )
 
@@ -282,14 +290,20 @@ async def run_judge(
     research_resp: ResearchResponse,
     case: Case | None = None,
     *,
+    case_brief_override: str | None = None,
     refinement_allowed: bool = True,  # noqa: ARG001 - reserved for future use
 ) -> JudgeResponse:
     """Run the judge agent over a ResearchResponse and optional Case.
 
     When JUDGE_PROVIDER is groq or siliconflow, uses LLM for per-task and
     overall verdict. When JUDGE_PROVIDER is none, uses heuristic logic.
+    If case_brief_override is set, use it instead of case.case_brief_text.
     """
-    case_brief = case.case_brief_text if case else None
+    case_brief = (
+        case_brief_override
+        if case_brief_override is not None
+        else (case.case_brief_text if case else None)
+    )
 
     if JUDGE_PROVIDER in ("groq", "siliconflow"):
         # LLM path: Phase 1 per-task, Phase 2 overall
@@ -324,11 +338,18 @@ async def run_judge(
             "evidence sources."
         )
 
-    return JudgeResponse(
+    resp = JudgeResponse(
         case_id=research_resp.case_id,
         fact_to_check=research_resp.fact_to_check,
         tasks=task_assessments,
         overall_verdict=overall_verdict,
         refinement_performed=False,
         refinement_suggestion=refinement_suggestion,
+    )
+    gate = validate_judge_output(resp, research_resp)
+    return resp.model_copy(
+        update={
+            "gatekeeper_passed": gate.valid,
+            "gatekeeper_reasons": gate.reasons,
+        }
     )

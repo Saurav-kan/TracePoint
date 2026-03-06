@@ -4,11 +4,12 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from sqlalchemy.orm import Session
 
+from app.config import JUDGE_GATEKEEPER_RETRY_COUNT
 from app.agents.gatekeeper import GatekeeperResult, validate_planner_output
 from app.agents.judge_agent import run_judge
 from app.agents.planner_agent import run_planner
 from app.agents.research_agent import run_research
-from app.db.models import Case
+from app.db.models import Case, CaseBrief
 from app.db.session import get_session
 from app.schemas.judge import JudgeResponse
 from app.schemas.planner import PlannerRequest, PlannerResponse
@@ -22,12 +23,19 @@ async def run_workflow(req: PlannerRequest) -> JudgeResponse:
     """Run the full pipeline: planner -> research -> judge.
 
     Returns the JudgeResponse with per-task assessments and overall verdict.
+    If req.brief_id is set, use that case brief's text for the planner.
     """
     session: Session = get_session()
+    brief_text_override: str | None = None
     try:
         case = session.get(Case, str(req.case_id))
         if case is None:
             raise HTTPException(status_code=404, detail="Case not found")
+        if req.brief_id is not None:
+            brief = session.get(CaseBrief, req.brief_id)
+            if brief is None or str(brief.case_id) != str(req.case_id):
+                raise HTTPException(status_code=404, detail="Brief not found")
+            brief_text_override = brief.brief_text
     finally:
         session.close()
 
@@ -37,7 +45,7 @@ async def run_workflow(req: PlannerRequest) -> JudgeResponse:
     last_gate: GatekeeperResult | None = None
 
     for _ in range(max_attempts):
-        resp = await run_planner(case, req)
+        resp = await run_planner(case, req, brief_text_override=brief_text_override)
         gate = validate_planner_output(resp, case)
         last_result = resp
         last_gate = gate
@@ -55,12 +63,21 @@ async def run_workflow(req: PlannerRequest) -> JudgeResponse:
     # 2. Research
     research_resp: ResearchResponse = run_research(planner_resp)
 
-    # 3. Judge
+    # 3. Judge (with gatekeeper retry)
     session = get_session()
     try:
         case = session.get(Case, str(research_resp.case_id))
         if case is None:
             raise HTTPException(status_code=404, detail="Case not found")
-        return await run_judge(research_resp, case=case)
+        max_attempts = JUDGE_GATEKEEPER_RETRY_COUNT + 1
+        last_judge_resp = None
+        for _ in range(max_attempts):
+            judge_resp = await run_judge(
+                research_resp, case=case, case_brief_override=brief_text_override
+            )
+            last_judge_resp = judge_resp
+            if judge_resp.gatekeeper_passed:
+                return judge_resp
+        return last_judge_resp
     finally:
         session.close()

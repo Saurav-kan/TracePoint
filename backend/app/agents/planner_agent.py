@@ -92,14 +92,18 @@ def _derive_search_boundary(case: Case) -> SearchBoundary:
     )
 
 
-async def run_planner(case: Case, req: PlannerRequest) -> PlannerResponse:
+async def run_planner(
+    case: Case, req: PlannerRequest, brief_text_override: Optional[str] = None
+) -> PlannerResponse:
     """Run the planner LLM with friction detection and return a response.
 
     This function does not perform gatekeeper validation; that is handled
     by a separate component.
+    If brief_text_override is provided, use it instead of case.case_brief_text.
     """
+    brief_text = brief_text_override if brief_text_override is not None else case.case_brief_text
     friction: FrictionSummary = await detect_friction(
-        case_brief_text=case.case_brief_text,
+        case_brief_text=brief_text,
         fact_to_check=req.fact_to_check,
     )
     search_boundary = _derive_search_boundary(case)
@@ -111,7 +115,7 @@ async def run_planner(case: Case, req: PlannerRequest) -> PlannerResponse:
     system_prompt = _build_system_prompt(allowed_labels)
 
     user_content = (
-        f"CASE OVERVIEW:\n{case.case_brief_text}\n\n"
+        f"CASE OVERVIEW:\n{brief_text}\n\n"
         f"FACT TO CHECK:\n{req.fact_to_check}\n\n"
         f"FRICTION SUMMARY:\n{friction.description or 'none'}\n\n"
         f"SEARCH BOUNDARY (start={search_boundary.start_time}, "

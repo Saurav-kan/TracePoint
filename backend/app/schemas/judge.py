@@ -103,4 +103,12 @@ class JudgeResponse(BaseModel):
             "may contain guidance for follow-up planner/research iterations."
         ),
     )
+    gatekeeper_passed: Optional[bool] = Field(
+        None,
+        description="Whether judge output passed gatekeeper validation (None if not run).",
+    )
+    gatekeeper_reasons: List[str] = Field(
+        default_factory=list,
+        description="Validation failure reasons when gatekeeper did not pass.",
+    )
 

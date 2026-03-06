@@ -12,9 +12,11 @@ JUDGE_TASK_SYSTEM_PROMPT = dedent(
     Rules:
     - Base your answer strictly on the evidence. Do not infer facts not in the evidence.
     - If evidence is missing or irrelevant, say so and mark sufficient_evidence as false.
-    - Extract key facts that support or weaken the claim. Each fact should have
-      a short description and supports_claim (true if it supports the claim, false
-      if it weakens or contradicts it).
+    - Extract key facts that support or weaken the claim. Each fact MUST have
+      a short description, supports_claim (true if it supports the claim, false
+      if it weakens or contradicts it), and evidence_indices: the 0-based indices
+      of the evidence snippets that support that fact (snippets are numbered
+      "--- Snippet 0 ---", "--- Snippet 1 ---", etc.).
     - Digital evidence (logs, GPS, device data) generally weighs more than
       testimony; physical evidence (receipts, badge swipes) weighs more than
       witness statements.
@@ -25,7 +27,11 @@ JUDGE_TASK_SYSTEM_PROMPT = dedent(
       "sufficient_evidence": true or false,
       "confidence": <0.0 to 1.0>,
       "key_facts": [
-        {"description": "<short fact>", "supports_claim": true or false}
+        {
+          "description": "<short fact>",
+          "supports_claim": true or false,
+          "evidence_indices": [0, 2]
+        }
       ],
       "notes": "<optional caveats or observations, or null>"
     }
