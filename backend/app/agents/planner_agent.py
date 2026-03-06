@@ -1,6 +1,7 @@
 """Planner agent: generate investigative tasks for a case and claim."""
-from typing import List, Optional
+import asyncio
 import json
+from typing import List, Optional
 
 from google import genai
 from google.genai import types
@@ -16,6 +17,9 @@ from app.config import (
     GROQ_API_KEY,
     GROQ_PLANNER_MODEL,
     GROQ_BASE_URL,
+    SILICONFLOW_API_KEY,
+    SILICONFLOW_BASE_URL,
+    SILICONFLOW_JUDGE_MODEL,
 )
 from app.agents.friction_detector import detect_friction
 from app.agents import planner_templates
@@ -49,6 +53,20 @@ def _build_system_prompt(allowed_labels: Optional[List[str]] = None) -> str:
         "Prefer concrete, objective evidence (logs, device traces, receipts,",
         "timestamps, CCTV) over subjective recollections when designing",
         "vector queries.",
+        "Identify Actor-Credential Mismatch: If the case involves a specific",
+        "account (e.g., an Admin), do not assume the owner of that account is",
+        "the one who used it. Propose a task to verify the physical location",
+        "of the account owner vs. the suspect during the breach.",
+        "Network Origin Analysis: Always include a task to identify the physical",
+        "device or workstation associated with a specific IP or login event.",
+        "Ask: 'Who was physically at the machine assigned to IP X?'",
+        "Credential Theft Investigation: Generate a task to check for 'Secondary",
+        "Access'—e.g., stolen tokens, shared passwords, or physical access to a",
+        "locked office where a terminal was left logged in.",
+        "Contrary Testing Requirement: At least one of the five tasks must test",
+        "the opposite or contrary of the input claim to avoid confirmation bias.",
+        "For example, if the claim is 'Person X is guilty,' include a task that",
+        "searches for evidence of Person X's innocence or alternative suspects.",
         "Always include at least one peripheral-detail question that probes",
         "minor contextual details that would be hard to fabricate.",
         "If a major inconsistency (friction) is described, at least two of",
@@ -92,6 +110,37 @@ def _derive_search_boundary(case: Case) -> SearchBoundary:
     )
 
 
+def _planner_call_siliconflow(
+    system_prompt: str,
+    user_content: str,
+    friction: FrictionSummary,
+    search_boundary: SearchBoundary,
+    req: PlannerRequest,
+) -> PlannerResponse:
+    """Fallback: call SiliconFlow (Qwen) for planner when primary provider fails."""
+    client = OpenAI(api_key=SILICONFLOW_API_KEY, base_url=SILICONFLOW_BASE_URL)
+    completion = client.chat.completions.create(
+        model=SILICONFLOW_JUDGE_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.2,
+    )
+    json_text = completion.choices[0].message.content
+    raw = json.loads(json_text or "{}")
+    tasks = raw.get("tasks", [])
+    data = {
+        "case_id": req.case_id,
+        "fact_to_check": req.fact_to_check,
+        "friction_summary": friction.model_dump(),
+        "search_boundary": search_boundary.model_dump(),
+        "tasks": tasks,
+    }
+    return PlannerResponse.model_validate(data)
+
+
 async def run_planner(
     case: Case, req: PlannerRequest, brief_text_override: Optional[str] = None
 ) -> PlannerResponse:
@@ -127,23 +176,25 @@ async def run_planner(
         if not OPENAI_API_KEY:
             raise RuntimeError("OPENAI_API_KEY is required when PLANNER_PROVIDER=openai.")
 
-        client = OpenAI(api_key=OPENAI_API_KEY)
-
-        completion = client.chat.completions.create(
-            model=OPENAI_PLANNER_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            response_format={"type": "json_object"},
-        )
-
         try:
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            completion = client.chat.completions.create(
+                model=OPENAI_PLANNER_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                response_format={"type": "json_object"},
+            )
             json_text = completion.choices[0].message.content
             raw = json.loads(json_text or "{}")
             tasks = raw.get("tasks", [])
-        except (AttributeError, IndexError, KeyError, json.JSONDecodeError) as exc:  # pragma: no cover - defensive
-            raise RuntimeError("OpenAI planner response missing or invalid JSON 'tasks'") from exc
+        except Exception:
+            if SILICONFLOW_API_KEY:
+                return _planner_call_siliconflow(
+                    system_prompt, user_content, friction, search_boundary, req
+                )
+            raise
 
         data = {
             "case_id": req.case_id,
@@ -159,23 +210,25 @@ async def run_planner(
         if not GROQ_API_KEY:
             raise RuntimeError("GROQ_API_KEY is required when PLANNER_PROVIDER=groq.")
 
-        client = OpenAI(api_key=GROQ_API_KEY, base_url=GROQ_BASE_URL)
-
-        completion = client.chat.completions.create(
-            model=GROQ_PLANNER_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            response_format={"type": "json_object"},
-        )
-
         try:
+            client = OpenAI(api_key=GROQ_API_KEY, base_url=GROQ_BASE_URL)
+            completion = client.chat.completions.create(
+                model=GROQ_PLANNER_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                response_format={"type": "json_object"},
+            )
             json_text = completion.choices[0].message.content
             raw = json.loads(json_text or "{}")
             tasks = raw.get("tasks", [])
-        except (AttributeError, IndexError, KeyError, json.JSONDecodeError) as exc:  # pragma: no cover - defensive
-            raise RuntimeError("Groq planner response missing or invalid JSON 'tasks'") from exc
+        except Exception:
+            if SILICONFLOW_API_KEY:
+                return _planner_call_siliconflow(
+                    system_prompt, user_content, friction, search_boundary, req
+                )
+            raise
 
         data = {
             "case_id": req.case_id,
@@ -191,7 +244,6 @@ async def run_planner(
         raise RuntimeError("GOOGLE_API_KEY is required for the planner agent.")
 
     client = genai.Client(api_key=GOOGLE_API_KEY)
-
     try:
         response = await client.aio.models.generate_content(
             model=PLANNER_MODEL,
@@ -202,13 +254,23 @@ async def run_planner(
                 response_schema=PlannerResponse,
             ),
         )
-    finally:
         await client.aio.aclose()
-
-    if hasattr(response, "parsed") and isinstance(response.parsed, PlannerResponse):
-        return response.parsed
-
-    if hasattr(response, "text") and response.text:
-        return PlannerResponse.model_validate_json(response.text)
-
-    raise RuntimeError("Planner agent returned no usable JSON payload.")
+        if hasattr(response, "parsed") and isinstance(
+            response.parsed, PlannerResponse
+        ):
+            return response.parsed
+        if hasattr(response, "text") and response.text:
+            return PlannerResponse.model_validate_json(response.text)
+        raise RuntimeError("Planner agent returned no usable JSON payload.")
+    except Exception:
+        await client.aio.aclose()
+        if SILICONFLOW_API_KEY:
+            return await asyncio.to_thread(
+                _planner_call_siliconflow,
+                system_prompt,
+                user_content,
+                friction,
+                search_boundary,
+                req,
+            )
+        raise

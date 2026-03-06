@@ -41,14 +41,14 @@ def _check_grounding(
 ) -> List[str]:
     """Check that fact description has meaningful lexical overlap with linked evidence.
 
-    Requires at least 2 significant tokens from the fact to appear in the
+    Requires at least 1 significant token from the fact to appear in the
     combined evidence text for the linked snippets.
     """
     if not fact.evidence_indices or not task.evidence:
         return []
 
     fact_tokens = _significant_tokens(fact.description)
-    if len(fact_tokens) < 2:
+    if len(fact_tokens) < 1:
         return []  # Very short fact, skip overlap check
 
     evidence_text_parts: List[str] = []
@@ -62,12 +62,12 @@ def _check_grounding(
     evidence_text = " ".join(evidence_text_parts)
     evidence_tokens = _significant_tokens(evidence_text)
     overlap = fact_tokens & evidence_tokens
-    if len(overlap) >= 2:
+    if len(overlap) >= 1:
         return []
     desc_preview = fact.description[:60] + ("..." if len(fact.description) > 60 else "")
     return [
         f"Fact '{desc_preview}' has insufficient overlap with "
-        f"linked evidence (need 2+ significant tokens, got {len(overlap)})"
+        f"linked evidence (need 1+ significant token, got {len(overlap)})"
     ]
 
 
@@ -151,9 +151,11 @@ def validate_judge_output(
         for r in _check_answer_question_relevance(ta):
             reasons.append(f"Task {ti}: {r}")
 
-    # 2. Fact-claim/question relevance
+    # 2. Fact-claim/question relevance (skip when fact is linked to evidence)
     for ti, ta in enumerate(resp.tasks):
         for fi, kf in enumerate(ta.key_facts):
+            if kf.evidence_indices:
+                continue  # Evidence-linked facts are treated as relevant
             for r in _check_fact_relevance(
                 kf, resp.fact_to_check, ta.question_text
             ):

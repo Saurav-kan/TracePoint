@@ -4,7 +4,6 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from sqlalchemy.orm import Session
 
-from app.config import JUDGE_GATEKEEPER_RETRY_COUNT
 from app.agents.gatekeeper import GatekeeperResult, validate_planner_output
 from app.agents.judge_agent import run_judge
 from app.agents.planner_agent import run_planner
@@ -63,21 +62,14 @@ async def run_workflow(req: PlannerRequest) -> JudgeResponse:
     # 2. Research
     research_resp: ResearchResponse = run_research(planner_resp)
 
-    # 3. Judge (with gatekeeper retry)
+    # 3. Judge (single run; gatekeeper is advisory)
     session = get_session()
     try:
         case = session.get(Case, str(research_resp.case_id))
         if case is None:
             raise HTTPException(status_code=404, detail="Case not found")
-        max_attempts = JUDGE_GATEKEEPER_RETRY_COUNT + 1
-        last_judge_resp = None
-        for _ in range(max_attempts):
-            judge_resp = await run_judge(
-                research_resp, case=case, case_brief_override=brief_text_override
-            )
-            last_judge_resp = judge_resp
-            if judge_resp.gatekeeper_passed:
-                return judge_resp
-        return last_judge_resp
+        return await run_judge(
+            research_resp, case=case, case_brief_override=brief_text_override
+        )
     finally:
         session.close()

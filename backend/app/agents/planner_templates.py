@@ -11,9 +11,10 @@ from textwrap import dedent
 VERIFICATION_TEMPLATE = dedent(
     """
     VERIFICATION questions ask: "What direct records, artifacts, or logs
-    could independently confirm or disconfirm the claim?" Examples include
-    device logs, receipts, access-control entries, GPS traces, and digital
-    system events.
+    could independently confirm or disconfirm the claim?" Probe evidence of
+    actual ACCESS or use (who did access, who could access), not formal
+    permission. Examples: access-control logs showing who badged in, device
+    logs showing who used a system, GPS traces, receipts, digital events.
     """
 ).strip()
 
