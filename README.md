@@ -4,10 +4,11 @@ Fact-checking RAG application for law enforcement investigations. Detects contra
 
 ## Architecture
 
-- **Frontend:** Next.js + React
-- **Backend:** FastAPI
-- **Database:** PostgreSQL + pgvector (cases + evidence)
-- **Orchestration:** LangGraph (planned)
+- **Frontend:** Next.js + React + Tailwind CSS
+- **Backend:** FastAPI (Python)
+- **Database:** PostgreSQL + pgvector (cases & evidence)
+- **Agents & Orchestration:** Custom 3-Agent Pipeline (Planner → Researcher → Judge) with Gatekeeper validation
+- **Models:** Supports OpenAI, Google Gemini, Groq, and SiliconFlow (as fallback)
 
 ## Setup
 
@@ -70,32 +71,42 @@ API docs at http://localhost:8000/docs
    { "case_id": "<uuid>", "chunks_created": N }
    ```
 
-3. **Request planner tasks for a fact-to-check**
+3. **Run the full investigation workflow (Planner → Researcher → Judge)**
 
    ```bash
-   curl -X POST http://localhost:8000/planner/plan \
+   curl -X POST http://localhost:8000/workflow/run \
      -H "Content-Type: application/json" \
      -d '{"case_id":"<uuid>","fact_to_check":"The suspect was at the store at 23:00"}'
    ```
 
-   Response (shape):
+   Response (shape) from the Judge Agent:
 
    ```json
    {
      "case_id": "<uuid>",
      "fact_to_check": "...",
-     "friction_summary": { "has_friction": true, "description": "..." },
-     "search_boundary": { "start_time": "...", "end_time": "..." },
      "tasks": [
        {
-         "type": "VERIFICATION",
          "question_text": "...",
-         "vector_query": "...",
-         "metadata_filter": { "label": "gps_log" }
+         "answer": "...",
+         "sufficient_evidence": true,
+         "confidence": 0.8,
+         "key_facts": []
        }
-     ]
+     ],
+     "overall_verdict": {
+       "claim": "...",
+       "verdict": "likely_true",
+       "rationale": "...",
+       "supporting_facts": [],
+       "contradicting_facts": []
+     },
+     "gatekeeper_passed": true,
+     "refinement_suggestion": null
    }
    ```
+
+   _Note: The workflow encompasses Friction Detection, task decomposition (Planner), semantic vector searches (Researcher), and per-task + holistic evidence synthesis (Judge)._
 
 ### 3. Frontend
 

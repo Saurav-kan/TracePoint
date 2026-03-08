@@ -1,0 +1,15 @@
+# Elevator System Maintenance Log - Building A
+**Reporting Period:** Q1 2026
+**System:** Otis Gen3 SmartConnect
+
+## Sensor Activity: February 28, 2026
+| Event ID | Time | Floor | Direction | Load Sensor (lbs) | Notes |
+|----------|------|-------|-----------|------------------|-------|
+| 10452    | 19:40| 1 -> 4| UP        | 165              | Routine use |
+| 10453    | 20:10| 4 -> 1| DOWN      | 150              | Routine use |
+| 10454    | 21:55| 2 -> 1| DOWN      | 185              | Routine use |
+| 10455    | 22:05| 1 -> 4| UP        | 180              | Occupant detected |
+| 10456    | 22:19| 4 -> 1| DOWN      | 180              | Occupant detected |
+| 10457    | 22:42| 3 -> 1| DOWN      | 125              | Occupant detected |
+
+*Note: Load sensor calibrated on Jan 15th, +/- 2 lbs margin of error.*

@@ -1,0 +1,17 @@
+The ground truth of this case is that Director Elena Vance is innocent and was framed by Security Lead Marcus Thorne. Thorne used a "Replay Attack" to clone Vance’s physical badge and planted her personal laptop in the vault to create a "perfect" digital and physical trail.
+
+The critical flaw in his plan was the Elevator Load Sensor. While Thorne could spoof Vance's digital identity, he could not spoof his own physical weight. The sensors recorded a 180 lb occupant in the elevator leading to the vault, which matches Thorne’s physical profile and is physically impossible for the 125 lb Director Vance.
+
+Timeline:
+- 10:05 PM: Marcus Thorne enters elevator in Building A.
+- 10:12 PM: Thorne (using Vance's badge) enters the High-Security Vault.
+- 10:15 PM: "Aegis" encryption keys are copied to a USB drive.
+- 10:18 PM: Thorne leaves the vault.
+- 10:20 PM: Vance's laptop is left in the server rack.
+- 10:25 PM: Thorne returns to his patrol.
+
+Evidence:
+- elevator_maintenance_log.txt: Shows 180 lbs at 10:05 PM.
+- employee_hr_directory.md: Shows Thorne (180 lbs) and Vance (125 lbs).
+- espresso_machine_status.txt: Confirms Vance's alibi (fixing machine at 10:10 PM).
+- wifi_connection_history.csv: Shows Vance's phone in the breakroom at 10:12 PM.

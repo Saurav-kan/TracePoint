@@ -11,6 +11,7 @@ from app.db.session import get_session
 from app.ingestion.embedder import embed_texts
 from app.schemas.cases import (
     CaseBriefResponse,
+    CaseBriefUpdateRequest,
     CaseCreateRequest,
     CaseCreateResponse,
     CaseDetailResponse,
@@ -244,6 +245,71 @@ async def add_brief(
             source_file=db_brief.source_file,
             created_at=db_brief.created_at,
         )
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.patch("/{case_id}/briefs/{brief_id}", response_model=CaseBriefResponse)
+def update_brief(
+    case_id: UUID, brief_id: int, payload: CaseBriefUpdateRequest
+) -> CaseBriefResponse:
+    """Update an existing case summary's title or text."""
+    session: Session = get_session()
+    try:
+        stmt = select(CaseBrief).where(
+            CaseBrief.case_id == str(case_id), CaseBrief.id == brief_id
+        )
+        brief = session.execute(stmt).scalar_one_or_none()
+        if brief is None:
+            raise HTTPException(status_code=404, detail="Brief not found")
+
+        if payload.title is not None:
+            brief.title = payload.title
+        if payload.brief_text is not None:
+            brief.brief_text = payload.brief_text
+            # Re-embed if text changed
+            embeddings = embed_texts([payload.brief_text])
+            brief.brief_embedding = embeddings[0] if embeddings else None
+
+        session.commit()
+        session.refresh(brief)
+        return CaseBriefResponse(
+            id=brief.id,
+            case_id=UUID(str(brief.case_id)),
+            title=brief.title,
+            brief_text=brief.brief_text,
+            source_file=brief.source_file,
+            created_at=brief.created_at,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.delete("/{case_id}/briefs/{brief_id}")
+def delete_brief(case_id: UUID, brief_id: int):
+    """Delete a case summary."""
+    session: Session = get_session()
+    try:
+        stmt = select(CaseBrief).where(
+            CaseBrief.case_id == str(case_id), CaseBrief.id == brief_id
+        )
+        brief = session.execute(stmt).scalar_one_or_none()
+        if brief is None:
+            raise HTTPException(status_code=404, detail="Brief not found")
+
+        session.delete(brief)
+        session.commit()
+        return {"status": "deleted"}
     except HTTPException:
         raise
     except Exception as e:

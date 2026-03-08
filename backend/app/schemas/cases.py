@@ -63,6 +63,7 @@ class CaseUpdateRequest(BaseModel):
     status: Optional[str] = None
 
 
+
 class CaseBriefResponse(BaseModel):
     """A case summary/brief for listing and selection."""
 
@@ -72,3 +73,10 @@ class CaseBriefResponse(BaseModel):
     brief_text: str = Field(..., description="Brief content")
     source_file: Optional[str] = Field(None, description="Original filename if from file")
     created_at: datetime = Field(..., description="When created")
+
+
+class CaseBriefUpdateRequest(BaseModel):
+    """Request to update a case brief."""
+
+    title: Optional[str] = Field(None, description="Updated brief title")
+    brief_text: Optional[str] = Field(None, description="Updated brief content")

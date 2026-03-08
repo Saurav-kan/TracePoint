@@ -103,6 +103,20 @@ class JudgeResponse(BaseModel):
             "may contain guidance for follow-up planner/research iterations."
         ),
     )
+    needs_refinement: bool = Field(
+        False,
+        description=(
+            "Whether the judge wants a supplemental research pass to gather "
+            "more evidence for under-supported questions."
+        ),
+    )
+    refinement_questions: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Specific questions the judge needs more evidence for. "
+            "Populated when needs_refinement is True (1-3 follow-up questions)."
+        ),
+    )
     gatekeeper_passed: Optional[bool] = Field(
         None,
         description="Whether judge output passed gatekeeper validation (None if not run).",

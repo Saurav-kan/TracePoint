@@ -22,3 +22,4 @@ class IngestResponse(BaseModel):
 
     case_id: UUID = Field(..., description="Case identifier used for ingestion")
     chunks_created: int = Field(..., description="Number of evidence chunks inserted")
+    source_document: str | None = Field(None, description="Source filename that was ingested")

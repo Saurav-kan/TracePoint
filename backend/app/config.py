@@ -74,10 +74,19 @@ JUDGE_GATEKEEPER_RETRY_COUNT = int(os.getenv("JUDGE_GATEKEEPER_RETRY_COUNT", "2"
 # Default evidence labels used when a case has no ingested evidence yet.
 # These provide a small global taxonomy for the planner to fall back on.
 DEFAULT_EVIDENCE_LABELS = [
-    "witness",
     "forensic_log",
-    "found_usb_drive",
     "security_interview",
+    "witness_statement",
+    "physical",
+    "access_log",
+    "network_log",
+    "sensor_data",
+    "surveillance",
+    "hr_record",
+    "financial_record",
+    "maintenance_log",
+    "communications",
     "ransom_note",
-    "inventory_log",
+    "osint",
+    "administrative",
 ]

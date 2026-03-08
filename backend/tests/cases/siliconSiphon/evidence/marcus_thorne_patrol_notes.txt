@@ -1,0 +1,11 @@
+# Patrol Notes: Marcus Thorne (Security Lead)
+**Date:** February 28, 2026
+**Shift:** 10:00 PM - 6:00 AM
+
+22:00: Shift rotation started. Building A and B secured.
+22:10: Conducting routine sweep of Building A, Level 4.
+22:12: Observed Director Elena Vance entering the High-Security Vault (Room 402). She appeared agitated and was carrying a MacBook Pro. I noted this in the security log as an unscheduled after-hours access.
+22:20: Director Vance exited the vault and proceeded toward the elevator. She did not acknowledge my presence when she passed me in the hallway.
+22:30: Building A sweep complete. Moving to Building B.
+22:45: Observed Director Vance badging out of the main entrance.
+00:15: Routine server ping failed for "Aegis" key directory. Initiated emergency lockdown.

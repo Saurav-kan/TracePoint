@@ -40,6 +40,11 @@ export default function Home() {
   const [processingStage, setProcessingStage] = useState(0);
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [ingestProgress, setIngestProgress] = useState<{
+    current: number;
+    total: number;
+    currentFile: string;
+  } | null>(null);
   const [recentCases, setRecentCases] = useState<CaseSummaryResponse[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -85,10 +90,14 @@ export default function Home() {
       const title = caseSummary.split("\n")[0].slice(0, 80) || "New Investigation";
       const { case_id } = await createCase(title, caseSummary);
       setProcessingStage(1);
+      setIngestProgress({ current: 0, total: files.length, currentFile: files[0].name });
 
-      for (const entry of files) {
+      for (let i = 0; i < files.length; i++) {
+        const entry = files[i];
+        setIngestProgress({ current: i, total: files.length, currentFile: entry.name });
         await ingestFile(entry.file, toBackendLabel(entry.label), case_id);
       }
+      setIngestProgress({ current: files.length, total: files.length, currentFile: "" });
       setProcessingStage(2);
 
       const verdict = await runWorkflow(case_id, question);
@@ -278,6 +287,30 @@ export default function Home() {
                           <span className={`text-xs font-medium ${i < processingStage ? "text-success" : i === processingStage ? "text-accent" : "text-zinc-600"}`}>{s}</span>
                         </div>
                       ))}
+
+                      {processingStage === 1 && ingestProgress && (
+                        <div className="mt-6 space-y-3 p-4 bg-black/20 rounded-xl border border-zinc-800 animate-fade-in">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
+                              Ingesting Evidence
+                            </span>
+                            <span className="text-xs font-mono text-accent">
+                              {ingestProgress.current} / {ingestProgress.total}
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-accent rounded-full transition-all duration-500 ease-out"
+                              style={{ width: `${(ingestProgress.current / ingestProgress.total) * 100}%` }}
+                            />
+                          </div>
+                          {ingestProgress.currentFile && (
+                            <p className="text-[10px] font-mono text-zinc-500 truncate">
+                              Processing: {ingestProgress.currentFile}
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

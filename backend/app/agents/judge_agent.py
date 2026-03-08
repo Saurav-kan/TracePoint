@@ -3,12 +3,15 @@
 Supports heuristic (no LLM) and LLM modes. When JUDGE_PROVIDER is groq or
 siliconflow, uses a two-phase LLM workflow: per-task assessment then overall
 verdict. When JUDGE_PROVIDER is none, uses deterministic heuristics.
+
+Both paths populate needs_refinement / refinement_questions so the graph
+can route to a supplemental research pass when evidence is insufficient.
 """
 
 from __future__ import annotations
 
 import json
-from typing import List
+from typing import List, Tuple
 
 from app.config import JUDGE_FINAL_VIEW_CHUNKS, JUDGE_PROVIDER
 from app.db.models import Case
@@ -226,8 +229,11 @@ async def _build_overall_verdict_llm(
     task_assessments: List[JudgeTaskAssessment],
     research_resp: ResearchResponse,
     case_brief: str | None,
-) -> JudgeOverallVerdict:
-    """Use LLM for overall verdict. Fall back to heuristic on parse failure."""
+) -> Tuple[JudgeOverallVerdict, bool, List[str]]:
+    """Use LLM for overall verdict. Fall back to heuristic on parse failure.
+
+    Returns (verdict, needs_refinement, refinement_questions).
+    """
     assessments_block = _format_assessments_for_overall(task_assessments)
     case_block = f"CASE SUMMARY:\n{case_brief}\n\n" if case_brief else ""
 
@@ -248,7 +254,9 @@ async def _build_overall_verdict_llm(
         )
         data = json.loads(raw)
     except (json.JSONDecodeError, TypeError, KeyError):
-        return _build_overall_verdict(claim, task_assessments)
+        verdict = _build_overall_verdict(claim, task_assessments)
+        needs, questions = _derive_heuristic_refinement(task_assessments)
+        return verdict, needs, questions
 
     supporting: List[JudgeTaskFact] = []
     for kf in data.get("supporting_facts", []):
@@ -277,7 +285,7 @@ async def _build_overall_verdict_llm(
     if verdict_raw not in ("true", "likely_true", "uncertain", "likely_false", "false"):
         verdict_raw = "uncertain"
 
-    return JudgeOverallVerdict(
+    verdict = JudgeOverallVerdict(
         claim=claim,
         verdict=verdict_raw,
         rationale=str(data.get("rationale", "No rationale provided.")),
@@ -285,13 +293,39 @@ async def _build_overall_verdict_llm(
         contradicting_facts=contradicting,
     )
 
+    # Parse refinement fields from LLM response
+    needs_refinement = bool(data.get("needs_refinement", False))
+    raw_questions = data.get("refinement_questions", [])
+    refinement_questions: List[str] = [
+        str(q) for q in raw_questions if isinstance(q, str)
+    ][:3]
+
+    return verdict, needs_refinement, refinement_questions
+
+
+def _derive_heuristic_refinement(
+    task_assessments: List[JudgeTaskAssessment],
+) -> Tuple[bool, List[str]]:
+    """Derive refinement signal from heuristic assessments.
+
+    If any task has insufficient evidence, flag refinement and use the
+    question_text of the first 1-3 insufficient tasks as refinement questions.
+    """
+    insufficient = [
+        ta for ta in task_assessments if not ta.sufficient_evidence
+    ]
+    if not insufficient:
+        return False, []
+    questions = [ta.question_text for ta in insufficient[:3]]
+    return True, questions
+
 
 async def run_judge(
     research_resp: ResearchResponse,
     case: Case | None = None,
     *,
     case_brief_override: str | None = None,
-    refinement_allowed: bool = True,  # noqa: ARG001 - reserved for future use
+    refinement_performed: bool = False,
 ) -> JudgeResponse:
     """Run the judge agent over a ResearchResponse and optional Case.
 
@@ -305,6 +339,9 @@ async def run_judge(
         else (case.case_brief_text if case else None)
     )
 
+    needs_refinement = False
+    refinement_questions: List[str] = []
+
     if JUDGE_PROVIDER in ("groq", "siliconflow"):
         # LLM path: Phase 1 per-task, Phase 2 overall
         task_assessments: List[JudgeTaskAssessment] = []
@@ -314,11 +351,13 @@ async def run_judge(
             )
             task_assessments.append(ta)
 
-        overall_verdict = await _build_overall_verdict_llm(
-            research_resp.fact_to_check,
-            task_assessments,
-            research_resp,
-            case_brief,
+        overall_verdict, needs_refinement, refinement_questions = (
+            await _build_overall_verdict_llm(
+                research_resp.fact_to_check,
+                task_assessments,
+                research_resp,
+                case_brief,
+            )
         )
     else:
         # Heuristic path
@@ -328,6 +367,9 @@ async def run_judge(
         ]
         overall_verdict = _build_overall_verdict(
             research_resp.fact_to_check, task_assessments
+        )
+        needs_refinement, refinement_questions = _derive_heuristic_refinement(
+            task_assessments
         )
 
     refinement_suggestion = None
@@ -343,8 +385,10 @@ async def run_judge(
         fact_to_check=research_resp.fact_to_check,
         tasks=task_assessments,
         overall_verdict=overall_verdict,
-        refinement_performed=False,
+        refinement_performed=refinement_performed,
         refinement_suggestion=refinement_suggestion,
+        needs_refinement=needs_refinement,
+        refinement_questions=refinement_questions,
     )
     gate = validate_judge_output(resp, research_resp)
     return resp.model_copy(

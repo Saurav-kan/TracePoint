@@ -3,13 +3,23 @@
 Uses a secondary Gemini API key to avoid rate limits on the main
 embedding key and returns strictly-typed JSON validated by Pydantic.
 """
+import logging
 from typing import List, Optional
 
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+)
 
 from app.config import EVIDENCE_CLERK_MODEL, GOOGLE_API_KEY2
+
+logger = logging.getLogger(__name__)
 
 
 class EvidenceClerkDetails(BaseModel):
@@ -40,12 +50,33 @@ class EvidenceClerkDetails(BaseModel):
     )
 
 
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Check if an exception is a rate-limit (429) error from the Gemini SDK."""
+    exc_type = type(exc).__name__
+    # google-genai raises ClientError or similar with status 429
+    if "ResourceExhausted" in exc_type or "TooManyRequests" in exc_type:
+        return True
+    # Catch generic errors with 429 in the message
+    if "429" in str(exc):
+        return True
+    return False
+
+
+@retry(
+    retry=retry_if_exception_type((Exception,)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=2, max=60),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
 async def extract_evidence_details(text: str) -> EvidenceClerkDetails:
     """Call Gemini Flash to extract structured evidence metadata.
 
     The response is constrained to JSON and validated against
     `EvidenceClerkDetails` using the google-genai response_schema
     integration.
+
+    Retries automatically on 429 rate-limit errors with exponential backoff.
     """
     if not GOOGLE_API_KEY2:
         raise RuntimeError("GOOGLE_API_KEY2 is required for the evidence clerk.")
@@ -72,6 +103,11 @@ async def extract_evidence_details(text: str) -> EvidenceClerkDetails:
                 response_schema=EvidenceClerkDetails,
             ),
         )
+    except Exception as e:
+        # Let tenacity handle retries for rate-limit errors
+        if _is_rate_limit_error(e):
+            logger.warning("Rate limited by Gemini API, will retry: %s", e)
+        raise
     finally:
         await client.aio.aclose()
 

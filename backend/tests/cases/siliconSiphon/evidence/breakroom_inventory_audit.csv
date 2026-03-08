@@ -1,0 +1,11 @@
+item_id,item_name,quantity,status
+COF-01,Espresso Beans (Dark Roast),15kg,In Stock
+COF-02,Espresso Beans (Medium Roast),10kg,In Stock
+COF-03,Decaf Beans,2kg,Low Stock
+MILK-01,Whole Milk,24L,In Stock
+MILK-02,Oat Milk,12L,In Stock
+SUG-01,White Sugar,5kg,In Stock
+TEA-01,Earl Grey,100 bags,In Stock
+TEA-02,Green Tea,50 bags,In Stock
+CLEAN-01,Dish Soap,4L,In Stock
+CLEAN-02,Paper Towels,48 rolls,In Stock

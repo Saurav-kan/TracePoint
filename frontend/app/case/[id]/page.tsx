@@ -5,6 +5,8 @@ import {
   runWorkflow,
   listBriefs,
   addBrief,
+  updateBrief,
+  deleteBrief,
   type CaseBriefResponse,
   type CaseDetailResponse,
   type JudgeResponse,
@@ -29,6 +31,11 @@ export default function CaseWorkspace() {
   const [newBriefTitle, setNewBriefTitle] = useState("");
   const [isAddingBrief, setIsAddingBrief] = useState(false);
   const addBriefFileRef = useRef<HTMLInputElement>(null);
+
+  const [isEditingBrief, setIsEditingBrief] = useState(false);
+  const [editBriefText, setEditBriefText] = useState("");
+  const [editBriefTitle, setEditBriefTitle] = useState("");
+  const [isUpdatingBrief, setIsUpdatingBrief] = useState(false);
 
   const fetchCase = useCallback(async () => {
     if (!id || typeof id !== "string") return;
@@ -131,6 +138,42 @@ export default function CaseWorkspace() {
     }
   };
 
+  const handleUpdateBrief = async () => {
+    if (!id || typeof id !== "string" || !selectedBriefId) return;
+    setIsUpdatingBrief(true);
+    try {
+      await updateBrief(id, selectedBriefId, {
+        title: editBriefTitle,
+        brief_text: editBriefText,
+      });
+      setIsEditingBrief(false);
+      await fetchBriefs();
+    } catch (e) {
+      console.error("Failed to update brief:", e);
+    } finally {
+      setIsUpdatingBrief(false);
+    }
+  };
+
+  const handleDeleteBrief = async () => {
+    if (!id || typeof id !== "string" || !selectedBriefId) return;
+    if (!confirm("Are you sure you want to delete this summary?")) return;
+    try {
+      await deleteBrief(id, selectedBriefId);
+      setSelectedBriefId((prev) => null);
+      await fetchBriefs();
+    } catch (e) {
+      console.error("Failed to delete brief:", e);
+    }
+  };
+
+  const startEditing = () => {
+    if (!selectedBrief) return;
+    setEditBriefTitle(selectedBrief.title);
+    setEditBriefText(selectedBrief.brief_text);
+    setIsEditingBrief(true);
+  };
+
   const handleAddBriefFile = (f: File) => {
     if (!/\.(md|txt|markdown)$/i.test(f.name)) return;
     handleAddBrief(f);
@@ -205,19 +248,43 @@ export default function CaseWorkspace() {
               </div>
 
               {briefs.length > 0 && (
-                <select
-                  value={selectedBriefId ?? ""}
-                  onChange={(e) =>
-                    setSelectedBriefId(e.target.value ? Number(e.target.value) : null)
-                  }
-                  className="w-full bg-black/20 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-300 outline-none focus:border-accent/40"
-                >
-                  {briefs.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.title} {b.source_file ? `(${b.source_file})` : ""}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex gap-2">
+                  <select
+                    value={selectedBriefId ?? ""}
+                    onChange={(e) =>
+                      setSelectedBriefId(e.target.value ? Number(e.target.value) : null)
+                    }
+                    className="flex-1 bg-black/20 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-300 outline-none focus:border-accent/40"
+                  >
+                    {briefs.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.title} {b.source_file ? `(${b.source_file})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {!showAddBrief && !isEditingBrief && selectedBriefId && (
+                    <div className="flex gap-1">
+                      <button
+                        onClick={startEditing}
+                        className="p-2 text-zinc-500 hover:text-accent transition-colors"
+                        title="Edit Summary"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={handleDeleteBrief}
+                        className="p-2 text-zinc-500 hover:text-danger transition-colors"
+                        title="Delete Summary"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
 
               {showAddBrief ? (
@@ -273,6 +340,37 @@ export default function CaseWorkspace() {
                   >
                     {isAddingBrief ? "Adding…" : "Add Summary"}
                   </button>
+                </div>
+              ) : isEditingBrief ? (
+                <div className="space-y-3 p-4 bg-black/20 rounded-xl border border-accent/20">
+                  <input
+                    type="text"
+                    value={editBriefTitle}
+                    onChange={(e) => setEditBriefTitle(e.target.value)}
+                    placeholder="Brief Title"
+                    className="w-full bg-black/20 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-300 outline-none focus:border-accent/40"
+                  />
+                  <textarea
+                    value={editBriefText}
+                    onChange={(e) => setEditBriefText(e.target.value)}
+                    placeholder="Summary content"
+                    className="w-full min-h-[120px] bg-black/20 border border-zinc-800 rounded-lg p-3 text-xs text-zinc-300 outline-none focus:border-accent/40 resize-none"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleUpdateBrief}
+                      disabled={!editBriefText.trim() || isUpdatingBrief}
+                      className="flex-1 py-2 bg-accent/20 text-accent text-xs font-semibold rounded-lg hover:bg-accent/30 disabled:opacity-50"
+                    >
+                      {isUpdatingBrief ? "Saving…" : "Save Changes"}
+                    </button>
+                    <button
+                      onClick={() => setIsEditingBrief(false)}
+                      className="px-4 py-2 bg-zinc-800 text-zinc-400 text-xs font-semibold rounded-lg hover:bg-zinc-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-zinc-400 leading-relaxed max-h-[200px] overflow-y-auto custom-scrollbar pr-1">

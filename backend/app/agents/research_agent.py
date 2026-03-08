@@ -54,6 +54,11 @@ def _build_metadata_filters(task, table_or_entity) -> List:  # type: ignore[type
             clauses.append(label_col == value)
         elif key == "source_document":
             clauses.append(source_doc_col == value)
+        elif key == "evidence_type":
+            # Query clerk-extracted evidence_type from JSONB
+            clauses.append(
+                meta_col["evidence_clerk"]["evidence_type"].astext == value
+            )
         else:
             clauses.append(meta_col[value].astext == value)
     return clauses

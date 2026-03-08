@@ -15,7 +15,7 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 def _get_text_from_file(path: Path) -> str:
     """Get document text from a file. For .txt/.md read directly; else use chunker."""
-    if path.suffix.lower() in (".txt", ".md"):
+    if path.suffix.lower() in (".txt", ".md", ".log"):
         return path.read_text(encoding="utf-8", errors="replace")
     chunks = chunk_file(path)
     return "\n\n".join(chunks) if chunks else ""
@@ -47,7 +47,11 @@ async def ingest(req: IngestRequest) -> IngestResponse:
             additional_metadata=merged_metadata,
             case_id=req.case_id,
         )
-        return IngestResponse(case_id=req.case_id, chunks_created=count)
+        return IngestResponse(
+            case_id=req.case_id,
+            chunks_created=count,
+            source_document=req.source_document,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -94,7 +98,11 @@ async def ingest_file(
             additional_metadata=merged_metadata,
             case_id=case_id,
         )
-        return IngestResponse(case_id=case_id, chunks_created=count)
+        return IngestResponse(
+            case_id=case_id,
+            chunks_created=count,
+            source_document=file.filename,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

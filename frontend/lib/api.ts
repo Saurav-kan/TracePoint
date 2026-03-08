@@ -8,23 +8,44 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 export const LABELS = [
   "Forensic Log",
   "Interview Transcript",
+  "Witness Statement",
   "Physical Evidence",
+  "Access Log",
+  "Network Log",
+  "Sensor Data",
+  "Surveillance",
+  "HR Record",
+  "Financial Record",
+  "Maintenance Log",
+  "Communications",
   "Ransom Note",
   "Open Source Intelligence",
+  "Administrative",
 ] as const;
 
 /** Map frontend display labels to backend snake_case labels */
 export const LABEL_TO_BACKEND: Record<string, string> = {
   "Forensic Log": "forensic_log",
   "Interview Transcript": "security_interview",
+  "Witness Statement": "witness_statement",
   "Physical Evidence": "physical",
+  "Access Log": "access_log",
+  "Network Log": "network_log",
+  "Sensor Data": "sensor_data",
+  "Surveillance": "surveillance",
+  "HR Record": "hr_record",
+  "Financial Record": "financial_record",
+  "Maintenance Log": "maintenance_log",
+  "Communications": "communications",
   "Ransom Note": "ransom_note",
   "Open Source Intelligence": "osint",
+  "Administrative": "administrative",
 };
 
 export function toBackendLabel(displayLabel: string): string {
   return LABEL_TO_BACKEND[displayLabel] ?? "forensic_log";
 }
+
 
 // --- API types (aligned with backend schemas) ---
 
@@ -228,6 +249,37 @@ export async function updateCaseBrief(
   if (!res.ok) {
     const err = await res.text();
     throw new Error(err || `updateCaseBrief failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function updateBrief(
+  caseId: string,
+  briefId: number,
+  payload: { title?: string; brief_text?: string }
+): Promise<CaseBriefResponse> {
+  const res = await fetch(`${API_BASE}/cases/${caseId}/briefs/${briefId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `updateBrief failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteBrief(
+  caseId: string,
+  briefId: number
+): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE}/cases/${caseId}/briefs/${briefId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `deleteBrief failed: ${res.status}`);
   }
   return res.json();
 }

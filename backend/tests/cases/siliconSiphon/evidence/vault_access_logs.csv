@@ -1,0 +1,6 @@
+timestamp,event,user_id,location,status
+2026-02-28 20:00,Badge-In,EVANCE_04,Main Entrance,SUCCESS
+2026-02-28 21:30,Portal-Access,EVANCE_04,Level 4 Hallway,SUCCESS
+2026-02-28 22:12,Vault-Entry,EVANCE_04,High-Security Vault,SUCCESS
+2026-02-28 22:18,Vault-Exit,EVANCE_04,High-Security Vault,SUCCESS
+2026-02-28 22:45,Badge-Out,EVANCE_04,Main Entrance,SUCCESS
