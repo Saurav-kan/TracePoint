@@ -46,7 +46,7 @@ RESEARCH_METADATA_FILTER_ENABLED = (
 RESEARCH_DISTANCE_METRIC = os.getenv("RESEARCH_DISTANCE_METRIC", "cosine").lower()
 if RESEARCH_DISTANCE_METRIC not in {"cosine", "l2"}:
     RESEARCH_DISTANCE_METRIC = "cosine"
-RESEARCH_TOP_K = int(os.getenv("RESEARCH_TOP_K", "5"))
+RESEARCH_TOP_K = int(os.getenv("RESEARCH_TOP_K", "15"))
 
 # Provider switches
 # PLANNER_PROVIDER can be: "gemini" (default), "openai", or "groq"

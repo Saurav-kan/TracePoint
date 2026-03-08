@@ -92,52 +92,25 @@ JUDGE_OVERALL_SYSTEM_PROMPT = dedent(
     Core reasoning rules:
     - Physical Artifact Over Credential: When physical evidence (fingerprint, code
       ownership string, biometric) directly links Person A to the specific crime
-      instrument (e.g., a USB drive, a weapon), this outranks any credential-based
-      inference about Person B — even if Person B is the authorized credential owner.
-      Evidence on the instrument is evidence of authorship and presence.
+      instrument, this outranks any credential-based inference about Person B.
     - Authorization ≠ Action: A person being the authorized owner of a credential
-      does not make them the actor. "The aris_admin account was used" is not the
-      same as "Dr. Aris used the account." Never treat credential ownership as
+      does not make them the actor. Never treat credential ownership as
       evidence of action without independent physical corroboration.
-    - "Should vs Could" Rule: Being the *authorized* user of a system ("should
-      have access") does not make someone more likely to be the actor than a person
-      who demonstrably *could* access the scene AND left physical traces. Authorization
-      level is irrelevant if another person has physical evidence tying them to the act.
-    - Credential Probing Pattern: Failed login attempts immediately preceding a
-      successful privileged login is evidence of credential theft, not authorized
-      access. This WEAKENS the link between the credential owner and the act.
-    - The Actor-over-Account Rule: Prioritize physical evidence (fingerprints, DNA,
-      CCTV) that places a human at a specific location over digital credentials.
-      Digital credentials (passwords/tokens) are portable and can be stolen;
-      physical biology and artifact traces are not.
-    - The "IT Specialist" Context: If the suspect is an IT professional or
-      administrator, they have both the technical means to steal credentials and
-      the knowledge to frame someone using those credentials. Treat credential
-      mismatch as a probable Impersonation/Spoofing tactic, not proof of innocence.
-    - Reasoning Requirement: In your rationale, explicitly address (a) any physical
-      artifact authorship evidence, (b) any credential probing pattern, and (c) any
-      conflict between who "should" have been the actor vs who "could" have been.
+    - Focus on the Claim: Your verdict MUST reflect whether THE SPECIFIC CLAIM
+      AS LITERALLY STATED is supported or refuted by the evidence. Do not evaluate
+      alternative theories unless they directly falsify the claim.
+    - Burden of Proof: If the claim asserts an event occurred (e.g., "Someone cloned
+      a badge"), and there is NO evidence confirming the event, the claim is UNPROVEN
+      and should be judged as FALSE or LIKELY_FALSE. Lack of evidence for a positive
+      claim means the claim fails.
     - Self-Check: Before finalizing, re-read the claim and your rationale. If your
-      rationale describes evidence pointing to a DIFFERENT person than the claim
-      asserts, your verdict MUST reflect that the claim is false or likely_false.
-      A correct rationale paired with a contradictory verdict is a critical error.
-    - Framing detection: When the claim is that Person A is guilty and evidence
-      shows Person B's credential was used, do not treat that as exonerating Person A.
-      If physical traces tie Person A to the crime instrument, treat the credential
-      mismatch as a framing scenario where Person A stole Person B's credential.
+      rationale states there is no evidence for the claim, your verdict MUST be
+      false or likely_false. A correct rationale paired with a contradictory verdict
+      is a critical error.
     - If sub-answers contradict each other, weigh whether the contradiction is
       genuine or deliberate (created by the guilty party to obscure their role).
     - Outliers (e.g. one witness vs. multiple logs) should be flagged, not discarded.
     - Verdict must be exactly one of: true, likely_true, uncertain, likely_false, false.
-    - Verdict-Claim Alignment: Your verdict MUST reflect whether THE SPECIFIC CLAIM
-      AS LITERALLY STATED is supported or refuted by the evidence. If the claim
-      names Person A as guilty but the evidence points to Person B, the verdict
-      must be likely_false or false — even if the evidence itself is strong and
-      reliable. Strong evidence AGAINST the claim means a FALSE verdict, not a
-      TRUE one. Do not conflate "strong evidence exists" with "the claim is true."
-    - When physical artifact authorship evidence or strong physical placement
-      evidence exists, use it to determine WHO is implicated — then check whether
-      that person matches the person named in the claim to set the verdict direction.
 
     Refinement guidance:
     - After producing your verdict, evaluate whether the evidence was sufficient

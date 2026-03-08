@@ -27,7 +27,9 @@ IMPOSSIBILITY_TEMPLATE = dedent(
     IMPOSSIBILITY questions ask: "What evidence could prove that the claim
     cannot be true at the same time as other known facts?" Examples include
     mutually exclusive locations or times, closed hours, or resource limits
-    that make the claim impossible.
+    that make the claim impossible. Crucially, always ask for physical trait
+    logs (elevator loads, height measurements) and CROSS-REFERENCE them with
+    the suspect's recorded physical profile in HR records to spot framing.
     """
 ).strip()
 

@@ -1,0 +1,293 @@
+======================================================================
+TRACEPOINT INVESTIGATION RESULT
+Generated: 2026-03-08T18:24:36.452801+00:00
+======================================================================
+
+Case:          On the night of February 28th, 2026, the "Aegis" encryption keys were stolen fro
+Claim:         Someone cloned Elena Vance's access badge to enter the vault
+Effort Level:  LOW
+Iterations:    1
+
+──────────────────────────────────────────────────────────────────────
+FINAL VERDICT
+──────────────────────────────────────────────────────────────────────
+Overall:       FALSE
+Fact Checked:  Someone cloned Elena Vance's access badge to enter the vault
+
+──────────────────────────────────────────────────────────────────────
+TASK-LEVEL ASSESSMENTS (10 tasks)
+──────────────────────────────────────────────────────────────────────
+
+  [1] What access control system logs record the badge identifier used at the vault entrance on February 28, 2026, including timestamp, reader device ID, and any biometric verification, to confirm which physical badge was presented?
+      Answer:     The evidence does not confirm a badge clone was used. Badge log entries show Elena Vance's identifier (EVANCE_04) was used at the vault entrance at 22:12, but no direct evidence of cloning exists. Initial claims of vault access match the valid badge record, though Vance disputes physical presence during this timeframe. The question specifically requests logs recording the badge identifier at the vault entrance, but the log snippet (Snippet 0) shows successful entry with EVANCE_04 without data on biometrics or cloning events.
+      Confidence: 0.5
+      Key Facts:
+        ↓ Vault access log entry at 22:12 shows 'EVANCE_04' used for vault entry
+        ↓ No evidence of biometric verification or cloning shown in vault access logs
+        ↓ Vance's claimed location (3rd floor breakroom) conflicts with timestamp of vault access (22:12)
+        ↓ The security witness statement notes Vance entering the vault at 22:12 with a MacBook Pro
+
+  [2] Do elevator usage logs, floor occupancy sensors, or security camera timestamps prove that Elena Vance could not have been at the vault entrance at the time of the breach because she was recorded on a different floor fixing the espresso machine?
+      Answer:     The evidence indicates Elena Vance was recorded on a different floor fixing the espresso machine while elevator logs show an elevator ride consistent with her presence at the vault area at the time of the breach. The elevator log shows an occupant at 198 lbs (matching Vance's bio-weight) entering the room at 22:11, and her location data shows continued presence in the breakroom area until well after the vault breach occurred.
+      Confidence: 0.94
+      Key Facts:
+        ↑ Elevator log showed an occupant weighing 180 lbs (close to Vance's bio-weight 125 lbs + 55 lbs of equipment) moving from floor 4 to 1 at 22:19, which aligns with Vance's documented kill time for the breach
+        ↑ After the 22:12 vault entry time, Vance used breakroom WiFi until 22:25, when she reportedly moved to office floor but no arrival at the vault is shown
+        ↑ The elevator log recorded an occupant weighing 180 lbs (matching Vance's bio-weight of 125 lbs) in a travel consistent with the vault entrance at 22:11
+        ↓ Security logs indicate the vault door was opened by an entry log for EVANCE_04 at 22:12, which is the exact time Vance claimed to be working on the espresso machine
+
+  [3] What CCTV video, lighting sensor, and ambient noise recordings exist for the vault corridor at the breach moment, and do they show a person matching Elena Vance’s appearance or an unknown individual?
+      Answer:     The evidence does not confirm that Elena Vance was physically present at the vault during the breach. CCTV and lighting records show vault entry/exit timestamps matching her badge usage, but Marcus Thorne noted her presence only at the vault entrance and egress. Vance's statement about fixing the espresso machine is unverified by evidence confirming her 3rd-floor location. While her badge and laptop were used, no physical evidence places her in the vault corridor at the breach moment.
+      Confidence: 0.4
+      Key Facts:
+        ↓ Security logs confirm EVANCE_04 badge was used to access the vault at 22:12
+        ↑ Marcus Thorne observed Elena Vance entering/exiting the vault at 22:12 and 22:18 per patrol notes
+        ↓ Vance claims she was fixing an espresso machine on the 3rd floor during the breach
+        ↓ Lighting records show motion detected at vault entrance at 22:11 and 22:19, matching vault entry/exit times
+        ↓ Elevator logs show elevator use at 22:19 matching Vance's vault exit time
+        ↓ Espresso machine status log confirms maintenance mode initiation during Vance's stated 22:05-22:25 timeline
+
+  [4] Are there missing security alerts or absent badge issuance logs that would normally be generated if a badge cloning device interacted with the credential provisioning system on the night of the theft?
+      Answer:     No, there is no evidence indicating missing security alerts or absent badge issuance logs related to badge cloning. The evidence shows normal badge access logs for Elena Vance's badge without irregularities or sudden log entries suggesting cloning attempts, and no credential provisioning system logs record abnormal operations that would indicate unauthorized badge cloning on the night of the theft.
+      Confidence: 0.2
+      Key Facts:
+        ↓ Badge access logs record standardized successful accesses by EVANCE_04 without any alert indications
+        ↓ No credential provisioning system logs (which would record badge cloning attempts) are provided in the evidence
+
+  [5] Which peripheral details recorded in witness statements or ambient audio (e.g., espresso machine status, background conversations, maintenance tools) corroborate Elena Vance’s claim of being on a different floor fixing the machine?
+      Answer:     The evidence does not corroborate Elena Vance's claim of being on the 3rd floor fixing the espresso machine. Her recorded elevator activity shows she was on Level 4 around 22:05-22:19, and security footage confirms she was at the vault entrance at 22:12. The espresso machine log indicates maintenance activity consistent with someone working on it at 22:05-22:25, but her bio-weight (125 lbs) did not match the elevator load sensor readings during her movements. There is no supporting evidence of her presence on the 3rd floor.
+      Confidence: 0.9
+      Key Facts:
+        ↓ Elena Vance's elevator activity shows she was on Level 4 at 22:05-22:19, contradicting her claim of being on the 3rd floor.
+        ↓ Security patrols confirmed Elena Vance at the vault entrance at 22:12 while she claimed to be fixing the espresso machine.
+        ↓ Elevator load data (180 lbs) did not match Elena Vance's listed bio-weight of 125 lbs during movement from Level 4 to 1.
+        ↓ Espresso machine maintenance log shows activity during the same period she claimed to be fixing it, conflicting with personnel movement evidence.
+
+  [6] What forensic examination results of the badge swiped at the vault reveal whether it is an original credential or a cloned replica, such as mismatched RFID chip serial numbers or broken tamper seals?
+      Answer:     The evidence provided does not contain forensic examination results regarding whether Elena Vance's access badge was cloned. Snippets 0, 1, 2, 3, 4, 5, 6, 7, 8 discuss vault access logs, physical location evidence, and device identification but contain no details about the badge's RFID chip serial numbers, tamper seals, or authentication mechanisms specific to cloning detection. Without this information, it is impossible to confirm whether the badge was cloned.
+      Confidence: 0.0
+      Key Facts:
+        ↓ Vault access logs show Elena Vance's badge was used for entry at 22:12, but do not specify whether the badge was original or cloned
+        ↓ Security patrol notes mention observing Elena Vance entering the vault but do not identify the badge as cloned
+        ↓ Company directory confirms Elena Vance's role and organizational structure but provides no information on badge authenticity
+
+  [7] Do inventory and access logs for the security office demonstrate that no badge programming or cloning hardware was present or active in the building at the time of the breach?
+      Answer:     Inventory and access logs cannot confirm that no badge programming or cloning hardware was present or active in the building during the breach because evidence does not address badge cloning equipment. The provided evidence consists of access logs, HVAC records, elevator logs, printing logs, and witness statements, but none specify whether cloned badge devices or programming tools were present or active.
+      Confidence: 0.0
+      Key Facts:
+        ↓ No evidence exists regarding badge programming or cloning hardware presence or activity at the time of the breach.
+
+  [8] Did the vault’s anti-spoofing infrared sensors generate any alerts indicating a non-authentic or cloned badge was presented during the entry event?
+      Answer:     The evidence does not contain information about the vault's anti-spoofing infrared sensors generating alerts. No snippet mentions sensor alerts or infrared security features, leaving this unverified. The claim that someone cloned Elena Vance's access badge remains unproven by the available evidence.
+      Confidence: 0.0
+
+  [9] Are there any missing entries in the security incident database for badge cloning attempts on February 28, 2026, which would be expected if a cloned badge had been used?
+      Answer:     No, there are no missing entries in the security incident database for badge cloning attempts on February 28, 2026. The badge access logs (Snippet 0) show a continuous sequence of valid badge actions (entry, portal access, vault entry, vault exit, badging out) without any indication of aborted, failed, or unrecognized badge attempts that would suggest cloning. The authentication system did not flag the badge as invalid or abnormal during the entire sequence.
+      Confidence: 0.95
+      Key Facts:
+        ↓ The VAULT-ENTRY event at 22:12 shows Elena Vance's badge was accepted without status anomaly, with no failed attempts preceding it
+        ↓ The database shows valid entry and exit events (20:00-22:45) using the same ID without any indication of abnormal authentication attempts
+
+  [10] Do shift handover logs, staff rosters, or other peripheral records from the night shift note the presence or absence of any unauthenticated personnel near the vault, contradicting the existence of a clone user?
+      Answer:     The evidence does not definitively confirm that Elena Vance's access badge was cloned to enter the vault. While the vault access logs show EVANCE_04 (Vance's ID) accessed the vault at 22:12, Marcus Thorne's patrol notes indicate Vance physically entered the vault at that time. However, Vance denies being there and claims to have been fixing an espresso machine on the 3rd floor. The elevator logs show her presence on the 4th floor at 22:05 (floor 1 → 4), which aligns with the security logs but contradicts her stated location. Sanctions from Hvac logs (22:15 airflow spike) suggest activity matching the vault breach time. Overall, evidence is mixed but leans toward Vance's physical presence at the vault, supporting the possibility that her badge was used by her directly rather than cloned. The evidence is insufficient to confirm a badge clone.
+      Confidence: 0.55
+      Key Facts:
+        ↓ Vault access logs show EVANCE_04 user ID accessed the vault at 22:12, consistent with Vance's claimed access window for the theft.
+        ↑ Elevator logs show elevator 10455 traveling from floor 1 to 4 at 22:05, with load of 180 lbs, matching Vance's weight (125 lbs) if she boarded with another person totaling approx. 125 lbs.
+        ↓ Security patrol notes indicate Marcus Thorne observed Elena Vance entering the vault at 22:12, contradicting Vance's claim of being on the 3rd floor fixing the espresso machine.
+        ↑ Elevator log indicates another person could have been with Vance at floor 4 but was not detected in elevator logs, suggesting she might not have used her own badge or was accompanied by another person who may have cloned her badge.
+        ↓ Vance's own written statement indicates she was not at the vault at 22:12, stating that she was fixing the espresso machine in the breakroom.
+        ↑ The espresso machine status shows a maintenance mode initiation at 22:05, contradicting Vance's claim that she reached the breakroom around 22:05 and was fixing the machine. This suggests she could not have been present at the required time.
+
+──────────────────────────────────────────────────────────────────────
+PLANNER TASKS (10 tasks)
+──────────────────────────────────────────────────────────────────────
+  [1] [VERIFICATION] What access control system logs record the badge identifier used at the vault entrance on February 28, 2026, including timestamp, reader device ID, and any biometric verification, to confirm which physical badge was presented?
+      Vector Query: Access control logs from the vault door on Feb 28 2026 showing badge ID, timestamp, reader serial number, and biometric verification details
+  [2] [IMPOSSIBILITY] Do elevator usage logs, floor occupancy sensors, or security camera timestamps prove that Elena Vance could not have been at the vault entrance at the time of the breach because she was recorded on a different floor fixing the espresso machine?
+      Vector Query: Elevator access records, floor 3 occupancy sensor data, and security camera timestamps for Feb 28 2026 indicating Elena Vance's location on another floor during vault entry time
+  [3] [ENVIRONMENTAL] What CCTV video, lighting sensor, and ambient noise recordings exist for the vault corridor at the breach moment, and do they show a person matching Elena Vance’s appearance or an unknown individual?
+      Vector Query: Surveillance video and environmental sensor logs for the vault entrance corridor on Feb 28 2026 around the entry time, showing persons present, clothing, and any anomalies
+  [4] [NEGATIVE_PROOF] Are there missing security alerts or absent badge issuance logs that would normally be generated if a badge cloning device interacted with the credential provisioning system on the night of the theft?
+      Vector Query: Audit and alert logs from the badge provisioning system on Feb 28 2026 checking for lack of cloning detection alerts or missing duplication records
+  [5] [RECALL_STRESS] Which peripheral details recorded in witness statements or ambient audio (e.g., espresso machine status, background conversations, maintenance tools) corroborate Elena Vance’s claim of being on a different floor fixing the machine?
+      Vector Query: Witness statements and ambient audio logs from floor 3 espresso machine area on Feb 28 2026 describing background sounds, maintenance activity, and mentions of Elena Vance
+  [6] [VERIFICATION] What forensic examination results of the badge swiped at the vault reveal whether it is an original credential or a cloned replica, such as mismatched RFID chip serial numbers or broken tamper seals?
+      Vector Query: Forensic analysis of the badge used at vault entry on Feb 28 2026 checking RFID chip ID, manufacturer markings, and tamper evidence for signs of cloning
+  [7] [IMPOSSIBILITY] Do inventory and access logs for the security office demonstrate that no badge programming or cloning hardware was present or active in the building at the time of the breach?
+      Vector Query: Inventory records and access logs for badge programming stations on Feb 28 2026 showing absence of cloning devices or unauthorized access
+  [8] [ENVIRONMENTAL] Did the vault’s anti-spoofing infrared sensors generate any alerts indicating a non-authentic or cloned badge was presented during the entry event?
+      Vector Query: Anti-spoofing sensor logs from the vault door on Feb 28 2026 indicating detection of cloned badge signals or anomalous RFID reads
+  [9] [NEGATIVE_PROOF] Are there any missing entries in the security incident database for badge cloning attempts on February 28, 2026, which would be expected if a cloned badge had been used?
+      Vector Query: Security incident database queries for badge cloning events on Feb 28 2026 and verification of absence of such records despite alleged clone usage
+  [10] [RECALL_STRESS] Do shift handover logs, staff rosters, or other peripheral records from the night shift note the presence or absence of any unauthenticated personnel near the vault, contradicting the existence of a clone user?
+      Vector Query: Night shift handover notes and staff roster entries for Feb 28 2026 indicating whether any unknown individuals were logged near the vault area
+
+──────────────────────────────────────────────────────────────────────
+RESEARCH EVIDENCE
+──────────────────────────────────────────────────────────────────────
+
+  [1] What access control system logs record the badge identifier used at the vault entrance on February 28, 2026, including timestamp, reader device ID, and any biometric verification, to confirm which physical badge was presented?
+      📄 vault_access_logs.csv (score: 0.21)
+         timestamp,event,user_id,location,status
+2026-02-28 20:00,Badge-In,EVANCE_04,Main Entrance,SUCCESS
+2026-02-28 21:30,Portal-Access,EVANCE_04,Level 4 Hal...
+      📄 smart_lighting_report.html (score: 0.27)
+         Lighting Event Log: Building A, Level 4
+Generated: 2026-03-01 01:00
+22:00, Zone = Hallway 4-A. 22:00, Event = Motion Detected. 22:00, Intensity = 100%...
+      📄 forensic_report_v2.md (score: 0.29)
+         Forensic Investigation Report v2.0
+**Case ID:**
+2026-SS-01
+**Subject:**
+High-Security Vault Intrusion...
+
+  [2] Do elevator usage logs, floor occupancy sensors, or security camera timestamps prove that Elena Vance could not have been at the vault entrance at the time of the breach because she was recorded on a different floor fixing the espresso machine?
+      📄 vance_witness_statement.md (score: 0.16)
+         Witness Statement: Elena Vance
+**Role:**
+Director of Engineering
+**Date:**
+March 1, 2026
+I was absolutely not near the vault at 10:12 PM on February 2...
+      📄 case_summary.txt (score: 0.19)
+         On the night of February 28th, 2026, the "Aegis" encryption keys were stolen from a high-security vault. The initial investigation points exclusively ...
+      📄 marcus_thorne_patrol_notes.txt (score: 0.23)
+         Patrol Notes: Marcus Thorne (Security Lead)
+**Date:**
+February 28, 2026
+**Shift:**
+10:00 PM - 6:00 AM
+22:00: Shift rotation started. Building A and B ...
+
+  [3] What CCTV video, lighting sensor, and ambient noise recordings exist for the vault corridor at the breach moment, and do they show a person matching Elena Vance’s appearance or an unknown individual?
+      📄 case_summary.txt (score: 0.27)
+         On the night of February 28th, 2026, the "Aegis" encryption keys were stolen from a high-security vault. The initial investigation points exclusively ...
+      📄 vault_access_logs.csv (score: 0.27)
+         timestamp,event,user_id,location,status
+2026-02-28 20:00,Badge-In,EVANCE_04,Main Entrance,SUCCESS
+2026-02-28 21:30,Portal-Access,EVANCE_04,Level 4 Hal...
+      📄 marcus_thorne_patrol_notes.txt (score: 0.27)
+         Patrol Notes: Marcus Thorne (Security Lead)
+**Date:**
+February 28, 2026
+**Shift:**
+10:00 PM - 6:00 AM
+22:00: Shift rotation started. Building A and B ...
+
+  [4] Are there missing security alerts or absent badge issuance logs that would normally be generated if a badge cloning device interacted with the credential provisioning system on the night of the theft?
+      📄 vault_access_logs.csv (score: 0.28)
+         timestamp,event,user_id,location,status
+2026-02-28 20:00,Badge-In,EVANCE_04,Main Entrance,SUCCESS
+2026-02-28 21:30,Portal-Access,EVANCE_04,Level 4 Hal...
+      📄 printing_queue_log.txt (score: 0.33)
+         timestamp,user_id,job_id,pages,printer_name
+2026-02-28 17:05,SA_Admin,PRINT_551,12,PRINTER_4_NORTH
+2026-02-28 18:20,EV_04,PRINT_552,5,PRINTER_4_NORTH
+...
+      📄 parking_garage_access.csv (score: 0.34)
+         timestamp,event,user_id,vehicle_tag,status
+2026-02-28 17:30,Entrance,SA_Admin,CAL-889,SUCCESS
+2026-02-28 18:45,Entrance,EV_04,DIR-V-01,SUCCESS
+2026-02...
+
+  [5] Which peripheral details recorded in witness statements or ambient audio (e.g., espresso machine status, background conversations, maintenance tools) corroborate Elena Vance’s claim of being on a different floor fixing the machine?
+      📄 vance_witness_statement.md (score: 0.15)
+         Witness Statement: Elena Vance
+**Role:**
+Director of Engineering
+**Date:**
+March 1, 2026
+I was absolutely not near the vault at 10:12 PM on February 2...
+      📄 case_summary.txt (score: 0.23)
+         On the night of February 28th, 2026, the "Aegis" encryption keys were stolen from a high-security vault. The initial investigation points exclusively ...
+      📄 espresso_machine_status.txt (score: 0.25)
+         Espresso Machine Log - Building A, 3rd Floor Breakroom
+Status History: February 28, 2026
+- 08:00: Power On - Ready Mode
+- 09:30: High Usage - Temperat...
+
+  [6] What forensic examination results of the badge swiped at the vault reveal whether it is an original credential or a cloned replica, such as mismatched RFID chip serial numbers or broken tamper seals?
+      📄 forensic_report_v2.md (score: 0.27)
+         Forensic Investigation Report v2.0
+**Case ID:**
+2026-SS-01
+**Subject:**
+High-Security Vault Intrusion...
+      📄 case_summary.txt (score: 0.29)
+         On the night of February 28th, 2026, the "Aegis" encryption keys were stolen from a high-security vault. The initial investigation points exclusively ...
+      📄 vance_witness_statement.md (score: 0.31)
+         Witness Statement: Elena Vance
+**Role:**
+Director of Engineering
+**Date:**
+March 1, 2026
+I was absolutely not near the vault at 10:12 PM on February 2...
+
+  [7] Do inventory and access logs for the security office demonstrate that no badge programming or cloning hardware was present or active in the building at the time of the breach?
+      📄 vault_access_logs.csv (score: 0.28)
+         timestamp,event,user_id,location,status
+2026-02-28 20:00,Badge-In,EVANCE_04,Main Entrance,SUCCESS
+2026-02-28 21:30,Portal-Access,EVANCE_04,Level 4 Hal...
+      📄 forensic_report_v2.md (score: 0.31)
+         Forensic Investigation Report v2.0
+Connection Logs
+The server rack's internal monitoring system recorded an automated script execution at 22:15, which...
+      📄 hvac_maintenance_q1.md (score: 0.32)
+         HVAC System Maintenance Report - Q1 2026
+Detailed Maintenance Logs
+February 2026
+- Feb 02: Routine inspection of primary chillers. All levels nominal....
+
+  [8] Did the vault’s anti-spoofing infrared sensors generate any alerts indicating a non-authentic or cloned badge was presented during the entry event?
+      📄 vault_access_logs.csv (score: 0.26)
+         timestamp,event,user_id,location,status
+2026-02-28 20:00,Badge-In,EVANCE_04,Main Entrance,SUCCESS
+2026-02-28 21:30,Portal-Access,EVANCE_04,Level 4 Hal...
+      📄 elevator_maintenance_log.txt (score: 0.28)
+         Elevator System Maintenance Log - Building A
+Sensor Activity: February 28, 2026
+10452, Time = 19:40. 10452, Floor = 1 -> 4. 10452, Direction = UP. 104...
+      📄 smart_lighting_report.html (score: 0.28)
+         Lighting Event Log: Building A, Level 4
+Generated: 2026-03-01 01:00
+22:00, Zone = Hallway 4-A. 22:00, Event = Motion Detected. 22:00, Intensity = 100%...
+
+  [9] Are there any missing entries in the security incident database for badge cloning attempts on February 28, 2026, which would be expected if a cloned badge had been used?
+      📄 vault_access_logs.csv (score: 0.31)
+         timestamp,event,user_id,location,status
+2026-02-28 20:00,Badge-In,EVANCE_04,Main Entrance,SUCCESS
+2026-02-28 21:30,Portal-Access,EVANCE_04,Level 4 Hal...
+      📄 case_summary.txt (score: 0.33)
+         On the night of February 28th, 2026, the "Aegis" encryption keys were stolen from a high-security vault. The initial investigation points exclusively ...
+      📄 forensic_report_v2.md (score: 0.34)
+         Forensic Investigation Report v2.0
+**Case ID:**
+2026-SS-01
+**Subject:**
+High-Security Vault Intrusion...
+
+  [10] Do shift handover logs, staff rosters, or other peripheral records from the night shift note the presence or absence of any unauthenticated personnel near the vault, contradicting the existence of a clone user?
+      📄 marcus_thorne_patrol_notes.txt (score: 0.25)
+         Patrol Notes: Marcus Thorne (Security Lead)
+**Date:**
+February 28, 2026
+**Shift:**
+10:00 PM - 6:00 AM
+22:00: Shift rotation started. Building A and B ...
+      📄 vance_witness_statement.md (score: 0.28)
+         Witness Statement: Elena Vance
+**Role:**
+Director of Engineering
+**Date:**
+March 1, 2026
+I was absolutely not near the vault at 10:12 PM on February 2...
+      📄 vault_access_logs.csv (score: 0.29)
+         timestamp,event,user_id,location,status
+2026-02-28 20:00,Badge-In,EVANCE_04,Main Entrance,SUCCESS
+2026-02-28 21:30,Portal-Access,EVANCE_04,Level 4 Hal...
+
+======================================================================
+END OF REPORT
+======================================================================
