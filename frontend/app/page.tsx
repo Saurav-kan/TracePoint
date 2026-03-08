@@ -3,11 +3,14 @@
 import {
   createCase,
   ingestFile,
+  autoLabelFile,
+  toDisplayLabel,
   LABELS,
   runWorkflow,
   toBackendLabel,
   listCases,
   type CaseSummaryResponse,
+  type LabelScoreItem,
 } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
@@ -21,6 +24,10 @@ interface FileEntry {
   size: number;
   label: string;
   type: string;
+  autoLabeling?: boolean;
+  autoLabelDone?: boolean;
+  suggestedLabels?: string[];
+  allScores?: LabelScoreItem[];
 }
 
 const PROCESS_STAGES = [
@@ -64,6 +71,48 @@ export default function Home() {
       type: f.type,
     }));
     setFiles((prev) => [...prev, ...entries]);
+  };
+
+  const runAutoLabel = async (fileEntries: FileEntry[], startIdx: number) => {
+    const updated = startIdx === 0 ? [...fileEntries] : [...files, ...fileEntries];
+    // Mark all new entries as auto-labeling
+    for (let i = startIdx; i < updated.length; i++) {
+      updated[i].autoLabeling = true;
+    }
+    setFiles([...updated]);
+
+    // Run auto-label for each new file in parallel
+    const promises = fileEntries.map(async (entry, idx) => {
+      const globalIdx = startIdx + idx;
+      try {
+        const result = await autoLabelFile(entry.file);
+        const topLabel = result.suggested_labels[0];
+        return {
+          index: globalIdx,
+          label: topLabel ? toDisplayLabel(topLabel) : "Forensic Log",
+          suggestedLabels: result.suggested_labels,
+          allScores: result.all_scores,
+        };
+      } catch (err) {
+        console.error(`Auto-label failed for ${entry.name}:`, err);
+        return { index: globalIdx, label: "Forensic Log", suggestedLabels: [], allScores: [] };
+      }
+    });
+
+    const results = await Promise.all(promises);
+    setFiles((prev) => {
+      const next = [...prev];
+      for (const r of results) {
+        if (next[r.index]) {
+          next[r.index].label = r.label;
+          next[r.index].suggestedLabels = r.suggestedLabels;
+          next[r.index].allScores = r.allScores;
+          next[r.index].autoLabeling = false;
+          next[r.index].autoLabelDone = true;
+        }
+      }
+      return next;
+    });
   };
 
   const updateLabel = (index: number, label: string) => {
@@ -178,7 +227,10 @@ export default function Home() {
                       ))}
                     </div>
                     <button 
-                      onClick={() => setStep("labeling")}
+                      onClick={() => {
+                        setStep("labeling");
+                        runAutoLabel(files.slice(0), 0);
+                      }}
                       className="w-full py-4 bg-accent text-white font-bold text-sm tracking-widest uppercase rounded-xl hover:bg-accent/90 transition-all shadow-lg shadow-accent/10"
                     >
                       Continue to Classification &gt;
@@ -191,29 +243,74 @@ export default function Home() {
             {step === "labeling" && (
               <div className="flex-1 flex flex-col space-y-6 animate-slide-in">
                 <div className="flex justify-between items-center border-b border-white/5 pb-4">
-                  <h2 className="text-lg font-semibold text-white">Classify Evidence</h2>
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">Review Labels</h2>
+                    <p className="text-[10px] font-mono text-zinc-500 mt-1">AUTO-CLASSIFIED BY EVIDENCE CLERK</p>
+                  </div>
                   <span className="text-xs text-zinc-500">{files.length} objects detected</span>
                 </div>
-                <div className="flex-1 overflow-y-auto max-h-[350px] pr-2 custom-scrollbar space-y-3">
+                <div className="flex-1 overflow-y-auto max-h-[400px] pr-2 custom-scrollbar space-y-3">
                   {files.map((file, i) => (
-                    <div key={i} className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/5 hover:border-accent/20 transition-colors">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium text-zinc-200 truncate max-w-[300px]">{file.name}</span>
-                        <span className="text-[10px] font-mono text-zinc-500 uppercase">{(file.size / 1024).toFixed(1)}KB</span>
+                    <div key={i} className="p-4 bg-white/5 rounded-xl border border-white/5 hover:border-accent/20 transition-colors space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-zinc-200 truncate max-w-[300px]">{file.name}</span>
+                          <span className="text-[10px] font-mono text-zinc-500 uppercase">{(file.size / 1024).toFixed(1)}KB</span>
+                        </div>
+                        {file.autoLabeling ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+                            <span className="text-[10px] font-mono text-accent">ANALYZING…</span>
+                          </div>
+                        ) : (
+                          <select 
+                            value={file.label}
+                            onChange={(e) => updateLabel(i, e.target.value)}
+                            className="bg-zinc-900 text-xs border border-zinc-800 rounded-lg px-3 py-2 text-accent outline-none focus:border-accent/50 cursor-pointer"
+                          >
+                            {LABELS.map(l => <option key={l} value={l}>{l}</option>)}
+                          </select>
+                        )}
                       </div>
-                      <select 
-                        value={file.label}
-                        onChange={(e) => updateLabel(i, e.target.value)}
-                        className="bg-zinc-900 text-xs border border-zinc-800 rounded-lg px-3 py-2 text-accent outline-none focus:border-accent/50 cursor-pointer"
-                      >
-                        {LABELS.map(l => <option key={l} value={l}>{l}</option>)}
-                      </select>
+
+                      {/* Score chips */}
+                      {file.autoLabelDone && file.allScores && file.allScores.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {file.allScores
+                            .filter(s => s.score >= 4)
+                            .sort((a, b) => b.score - a.score)
+                            .map((s) => {
+                              const displayName = toDisplayLabel(s.label);
+                              const isSelected = file.label === displayName;
+                              const scoreColor = s.score >= 8
+                                ? "text-success border-success/30 bg-success/10"
+                                : s.score >= 6
+                                  ? "text-accent border-accent/30 bg-accent/10"
+                                  : "text-zinc-400 border-zinc-700 bg-zinc-800/50";
+                              return (
+                                <button
+                                  key={s.label}
+                                  onClick={() => updateLabel(i, displayName)}
+                                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-mono border transition-all ${
+                                    isSelected
+                                      ? "ring-1 ring-accent shadow-[0_0_8px_rgba(59,130,246,0.3)] " + scoreColor
+                                      : scoreColor + " hover:opacity-80"
+                                  }`}
+                                >
+                                  <span>{displayName}</span>
+                                  <span className="font-bold">{s.score}/10</span>
+                                </button>
+                              );
+                            })}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
                 <button 
                   onClick={() => setStep("context")}
-                  className="w-full py-4 bg-accent text-white font-bold text-sm tracking-widest uppercase rounded-xl hover:bg-accent/90 transition-all"
+                  disabled={files.some(f => f.autoLabeling)}
+                  className="w-full py-4 bg-accent text-white font-bold text-sm tracking-widest uppercase rounded-xl hover:bg-accent/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Confirm Labels &gt;
                 </button>

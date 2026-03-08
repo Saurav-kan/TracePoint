@@ -9,7 +9,7 @@ class IngestRequest(BaseModel):
     """Request body for document ingestion."""
 
     text: str = Field(..., description="Raw document text to ingest")
-    label: str = Field(..., description="Evidence type (e.g., witness, gps, alibi)")
+    label: str = Field("", description="Evidence type (e.g., witness, gps, alibi). If empty, auto-labeled.")
     case_id: UUID = Field(..., description="Case identifier this evidence belongs to")
     source_document: str | None = Field(None, description="Source document name")
     additional_metadata: dict[str, Any] | None = Field(

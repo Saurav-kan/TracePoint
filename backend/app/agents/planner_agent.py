@@ -53,7 +53,7 @@ def _build_system_prompt(
         "Each task must include: type, question_text, vector_query, metadata_filter.",
         "metadata_filter must be a list of {key, value} objects (e.g. {\"key\": \"label\", \"value\": \"forensic_log\"}), not a raw object.",
         "Types must be one of: VERIFICATION, IMPOSSIBILITY, ENVIRONMENTAL,",
-        "NEGATIVE_PROOF, RECALL_STRESS.",
+        "NEGATIVE_PROOF, RECALL_STRESS, PHYSICAL_ARTIFACT_AUTHORSHIP.",
         "Vector queries must be full descriptive sentences suitable for an",
         "embedding model, not single keywords.",
         "Prefer concrete, objective evidence (logs, device traces, receipts,",
@@ -168,9 +168,16 @@ def _build_refinement_system_prompt(
         "Each task must include: type, question_text, vector_query, metadata_filter.",
         "metadata_filter must be a list of {key, value} objects.",
         "Types must be one of: VERIFICATION, IMPOSSIBILITY, ENVIRONMENTAL,",
-        "NEGATIVE_PROOF, RECALL_STRESS.",
+        "NEGATIVE_PROOF, RECALL_STRESS, PHYSICAL_ARTIFACT_AUTHORSHIP.",
         "Vector queries must be full descriptive sentences suitable for an",
         "embedding model, not single keywords.",
+        "Here are canonical descriptions of the investigative types:",
+        planner_templates.VERIFICATION_TEMPLATE,
+        planner_templates.IMPOSSIBILITY_TEMPLATE,
+        planner_templates.ENVIRONMENTAL_TEMPLATE,
+        planner_templates.NEGATIVE_PROOF_TEMPLATE,
+        planner_templates.RECALL_STRESS_TEMPLATE,
+        planner_templates.PHYSICAL_ARTIFACT_AUTHORSHIP_TEMPLATE,
     ]
 
     labels = allowed_labels or DEFAULT_EVIDENCE_LABELS
@@ -308,6 +315,7 @@ async def run_planner(
     req: PlannerRequest,
     brief_text_override: Optional[str] = None,
     refinement_context: Optional[str] = None,
+    prior_iterations_summary: Optional[str] = None,
 ) -> PlannerResponse:
     """Run the planner LLM with friction detection and return a response.
 
@@ -316,6 +324,8 @@ async def run_planner(
     If brief_text_override is provided, use it instead of case.case_brief_text.
     If refinement_context is provided, run in supplemental-task mode: produce
     1-3 targeted tasks addressing refinement questions (gatekeeper bypassed).
+    If prior_iterations_summary is provided (multi-pass medium/high effort),
+    the planner uses prior verdicts to inform task design for subsequent passes.
     """
     brief_text = brief_text_override if brief_text_override is not None else case.case_brief_text
     friction: FrictionSummary = await detect_friction(
@@ -350,6 +360,8 @@ async def run_planner(
             f"SEARCH BOUNDARY (start={search_boundary.start_time}, "
             f"end={search_boundary.end_time})."
         )
+        if prior_iterations_summary:
+            user_content += f"\n\n{prior_iterations_summary}"
 
     # If configured, use OpenAI or Groq as the planner provider
     if PLANNER_PROVIDER in ("openai", "groq"):

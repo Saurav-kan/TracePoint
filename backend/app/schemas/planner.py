@@ -43,6 +43,7 @@ InvestigativeType = Literal[
     "ENVIRONMENTAL",
     "NEGATIVE_PROOF",
     "RECALL_STRESS",
+    "PHYSICAL_ARTIFACT_AUTHORSHIP",
 ]
 
 

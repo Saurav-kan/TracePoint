@@ -6,13 +6,18 @@ Nodes read from and write to the shared PipelineState TypedDict.
 
 from __future__ import annotations
 
-from fastapi import HTTPException
+import logging
 
-from app.agents.gatekeeper import validate_planner_output
+from fastapi import HTTPException
+from pydantic import ValidationError
+
+from app.agents.gatekeeper import GatekeeperResult, validate_planner_output
 from app.agents.judge_agent import run_judge
 from app.agents.planner_agent import run_planner
 from app.agents.research_agent import run_research
 from app.graph.state import PipelineState
+
+logger = logging.getLogger(__name__)
 
 
 async def planner_node(state: PipelineState) -> PipelineState:
@@ -36,14 +41,35 @@ async def planner_node(state: PipelineState) -> PipelineState:
 
     # Normal mode
     attempts = state.get("planner_attempts", 0) + 1
-    response = await run_planner(
-        state["case"],
-        state["request"],
-        brief_text_override=state.get("brief_text_override"),
-    )
+    try:
+        response = await run_planner(
+            state["case"],
+            state["request"],
+            brief_text_override=state.get("brief_text_override"),
+            prior_iterations_summary=state.get("prior_iterations_summary"),
+        )
+    except (ValidationError, ValueError) as exc:
+        # Schema validation failed — surface as a failed gate so the retry
+        # loop in _route_after_planner handles it instead of crashing.
+        logger.warning(
+            "Planner output failed schema validation (attempt %d): %s",
+            attempts,
+            exc,
+        )
+        gate = GatekeeperResult(
+            valid=False,
+            reasons=[f"Schema validation error: {exc}"],
+            needs_regeneration=True,
+        )
+        return {
+            "planner_attempts": attempts,
+            "planner_gate": gate,
+        }
+
     return {
         "planner_response": response,
         "planner_attempts": attempts,
+        "planner_gate": None,
     }
 
 
@@ -82,7 +108,12 @@ async def prepare_refinement_node(state: PipelineState) -> PipelineState:
     for the planner, and sets judge_refinement_attempts to 1 so the loop
     cannot trigger again.
     """
-    judge_resp = state["judge_response"]
+    judge_resp = state.get("judge_response")
+    if judge_resp is None:
+        raise HTTPException(
+            status_code=500,
+            detail="prepare_refinement_node requires judge_response; state may be inconsistent",
+        )
     questions = judge_resp.refinement_questions
     formatted = "\n".join(f"- {q}" for q in questions)
     return {

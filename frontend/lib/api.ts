@@ -43,7 +43,12 @@ export const LABEL_TO_BACKEND: Record<string, string> = {
 };
 
 export function toBackendLabel(displayLabel: string): string {
-  return LABEL_TO_BACKEND[displayLabel] ?? "forensic_log";
+  const mapped = LABEL_TO_BACKEND[displayLabel];
+  if (mapped !== undefined) return mapped;
+  // Pass through unmapped labels (e.g. from evidence clerk returning labels
+  // outside our 15, or backend labels shown via toDisplayLabel fallback).
+  // Silently converting to "forensic_log" would lose the user's selection.
+  return displayLabel;
 }
 
 
@@ -257,6 +262,52 @@ export async function createCase(
   if (!res.ok) {
     const err = await res.text();
     throw new Error(err || `createCase failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// --- Auto-label types ---
+
+export interface LabelScoreItem {
+  label: string;
+  score: number;
+}
+
+export interface AutoLabelResponse {
+  suggested_labels: string[];
+  all_scores: LabelScoreItem[];
+  clerk: {
+    summary: string;
+    parties: string[];
+    locations: string[];
+    times: string[];
+    evidence_type: string | null;
+    confidence: number;
+    label_scores: LabelScoreItem[];
+  };
+}
+
+/** Map backend snake_case labels to frontend display labels */
+const BACKEND_TO_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(LABEL_TO_BACKEND).map(([display, backend]) => [backend, display])
+);
+
+export function toDisplayLabel(backendLabel: string): string {
+  return BACKEND_TO_LABEL[backendLabel] ?? backendLabel;
+}
+
+/** Auto-label a file by sending it to the evidence clerk for scoring. */
+export async function autoLabelFile(file: File): Promise<AutoLabelResponse> {
+  const form = new FormData();
+  form.append("file", file);
+
+  const res = await fetch(`${API_BASE}/ingest/auto-label`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `autoLabelFile failed: ${res.status}`);
   }
   return res.json();
 }

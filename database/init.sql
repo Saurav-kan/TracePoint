@@ -57,3 +57,27 @@ ALTER TABLE evidence_chunks
     ADD COLUMN case_id UUID REFERENCES cases(case_id) ON DELETE CASCADE;
 
 CREATE INDEX idx_evidence_case_id ON evidence_chunks(case_id);
+
+-- Case briefs (multiple summaries per case)
+CREATE TABLE IF NOT EXISTS case_briefs (
+    id BIGSERIAL PRIMARY KEY,
+    case_id UUID NOT NULL REFERENCES cases(case_id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT 'Case Summary',
+    brief_text TEXT NOT NULL,
+    brief_embedding vector(1536),
+    source_file TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Investigation logs (persisted pipeline runs)
+CREATE TABLE IF NOT EXISTS investigation_logs (
+    id BIGSERIAL PRIMARY KEY,
+    case_id UUID NOT NULL REFERENCES cases(case_id) ON DELETE CASCADE,
+    claim TEXT NOT NULL,
+    effort_level VARCHAR(10) NOT NULL DEFAULT 'low',
+    verdict VARCHAR(50) NOT NULL,
+    result_payload JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_investigation_logs_case_id ON investigation_logs(case_id);

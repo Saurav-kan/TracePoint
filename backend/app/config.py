@@ -23,7 +23,9 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
 # Model choices
 PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gemini-3.0")
 FRICTION_MODEL = os.getenv("FRICTION_MODEL", "gemini-3.0-flash")
+EVIDENCE_CLERK_PROVIDER = os.getenv("EVIDENCE_CLERK_PROVIDER", "gemini").lower()
 EVIDENCE_CLERK_MODEL = os.getenv("EVIDENCE_CLERK_MODEL", "gemini-3.0-flash")
+SILICONFLOW_EVIDENCE_CLERK_MODEL = os.getenv("SILICONFLOW_EVIDENCE_CLERK_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 
 # OpenAI configuration (optional)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -37,6 +39,9 @@ GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 # Research agent configuration
 RESEARCH_TIME_FILTER_ENABLED = (
     os.getenv("RESEARCH_TIME_FILTER_ENABLED", "false").lower() == "true"
+)
+RESEARCH_METADATA_FILTER_ENABLED = (
+    os.getenv("RESEARCH_METADATA_FILTER_ENABLED", "false").lower() == "true"
 )
 RESEARCH_DISTANCE_METRIC = os.getenv("RESEARCH_DISTANCE_METRIC", "cosine").lower()
 if RESEARCH_DISTANCE_METRIC not in {"cosine", "l2"}:

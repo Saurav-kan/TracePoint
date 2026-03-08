@@ -101,3 +101,25 @@ class EvidenceChunk(Base):
     )
 
     case: Mapped[Case | None] = relationship(back_populates="evidence_chunks")
+
+
+class InvestigationLog(Base):
+    """Persisted investigation run containing full pipeline results."""
+
+    __tablename__ = "investigation_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    case_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("cases.case_id"), nullable=False
+    )
+    claim: Mapped[str] = mapped_column(Text, nullable=False)
+    effort_level: Mapped[str] = mapped_column(String(10), nullable=False, default="low")
+    verdict: Mapped[str] = mapped_column(String(50), nullable=False)
+    result_payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    case: Mapped[Case] = relationship()

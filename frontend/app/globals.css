@@ -139,10 +139,15 @@ body {
 }
 
 .effort-btn[data-active="true"] {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.5);
-  color: #3b82f6;
-  box-shadow: 0 0 12px -2px rgba(59, 130, 246, 0.15);
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.8);
+  color: #ffffff;
+  box-shadow: 0 0 15px -2px rgba(59, 130, 246, 0.3);
+  transform: translateY(-1px);
+}
+
+.effort-btn:active {
+  transform: translateY(0);
 }
 
 /* --- Pipeline step cards --- */
@@ -287,6 +292,19 @@ body {
 
 .flow-connector[data-active="true"] {
   color: rgba(59, 130, 246, 0.8);
+}
+
+.truncate-select {
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.truncate-select option {
+  max-width: 300px; /* Limit option width to prevent massive select growth */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* --- Custom scrollbar --- */

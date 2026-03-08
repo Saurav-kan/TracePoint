@@ -496,10 +496,10 @@ export default function CaseWorkspace() {
                   <select
                     value={selectedBriefId ?? ""}
                     onChange={(e) => setSelectedBriefId(e.target.value ? Number(e.target.value) : null)}
-                    className="flex-1 bg-black/20 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-300 outline-none focus:border-accent/40"
+                    className="flex-1 truncate-select bg-black/20 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-300 outline-none focus:border-accent/40"
                   >
                     {briefs.map((b) => (
-                      <option key={b.id} value={b.id}>
+                      <option key={b.id} value={b.id} className="truncate">
                         {b.title} {b.source_file ? `(${b.source_file})` : ""}
                       </option>
                     ))}
@@ -682,21 +682,22 @@ export default function CaseWorkspace() {
           </section>
 
           {/* Pipeline View Toggle */}
-          {(judgeData || isAnalyzing) && (
-            <div className="flex items-center justify-between px-2">
+          <div className="flex items-center justify-between px-2 pt-2">
+            <div className="flex flex-col">
               <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
-                Pipeline View
+                Advanced Pipeline View
               </span>
-              <button
-                onClick={() => setPipelineView(!pipelineView)}
-                className={`relative w-10 h-5 rounded-full transition-colors ${pipelineView ? "bg-accent" : "bg-zinc-700"}`}
-              >
-                <span
-                  className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${pipelineView ? "left-5" : "left-0.5"}`}
-                />
-              </button>
+              <span className="text-[8px] text-zinc-600 font-mono">SHOW STEP-BY-STEP ANALYSIS</span>
             </div>
-          )}
+            <button
+              onClick={() => setPipelineView(!pipelineView)}
+              className={`relative w-10 h-5 rounded-full transition-all duration-300 ${pipelineView ? "bg-accent shadow-[0_0_10px_rgba(59,130,246,0.4)]" : "bg-zinc-700"}`}
+            >
+              <span
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-300 ${pipelineView ? "left-5" : "left-0.5"}`}
+              />
+            </button>
+          </div>
 
           {/* ---- Pipeline Panels ---- */}
           {pipelineView && (isAnalyzing || plannerData) && (

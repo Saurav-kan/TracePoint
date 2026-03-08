@@ -43,10 +43,21 @@ def _route_after_planner(state: PipelineState) -> str:
 
     If refinement_context is set, the planner just produced supplemental
     tasks — route to research_supplemental_node (bypassing gatekeeper).
+    If a schema validation error already set a failed planner_gate,
+    apply retry/error logic directly (no valid response for gatekeeper).
     Otherwise, follow the normal path to the gatekeeper.
     """
     if state.get("refinement_context") is not None:
         return "research_supplemental_node"
+
+    # Schema validation failed in planner_node — gate already set
+    gate = state.get("planner_gate")
+    if gate and gate.needs_regeneration:
+        attempts = state.get("planner_attempts", 0)
+        if attempts >= MAX_PLANNER_ATTEMPTS:
+            return "error_node"
+        return "planner_node"
+
     return "planner_gatekeeper_node"
 
 
@@ -88,6 +99,8 @@ def build_graph() -> StateGraph:
         {
             "planner_gatekeeper_node": "planner_gatekeeper_node",
             "research_supplemental_node": "research_supplemental_node",
+            "planner_node": "planner_node",
+            "error_node": "error_node",
         },
     )
 

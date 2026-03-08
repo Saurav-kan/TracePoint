@@ -44,3 +44,6 @@ class PipelineState(TypedDict, total=False):
     judge_refinement_attempts: int
     refinement_context: Optional[str]
     planner_supplemental_response: Optional[PlannerResponse]
+
+    # --- Multi-iteration (medium/high effort) ---
+    prior_iterations_summary: Optional[str]

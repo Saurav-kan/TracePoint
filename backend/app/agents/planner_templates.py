@@ -65,12 +65,14 @@ RECALL_STRESS_TEMPLATE = dedent(
 
 PHYSICAL_ARTIFACT_AUTHORSHIP_TEMPLATE = dedent(
     """
-    PHYSICAL_ARTIFACT_AUTHORSHIP questions ask: "What forensic traces on the
-    specific physical instrument of the crime (e.g., USB drive, weapon, device)
-    identify who handled or created it?" Target: fingerprints, DNA, grease or
-    biological material, embedded code strings (ownership tags, developer
+    PHYSICAL_ARTIFACT_AUTHORSHIP (use type VERIFICATION): Questions that ask
+    "What forensic traces on the specific physical instrument of the crime
+    (e.g., USB drive, weapon, device) identify who handled or created it?"
+    Target: fingerprints, DNA, embedded code strings (ownership tags, developer
     signatures like 'property_of_X'), device serial numbers linked to a person.
     This evidence is near-conclusive and outweighs credential-based inferences.
+    Always use type VERIFICATION for physical-artifact tasks — this is a guideline
+    for designing VERIFICATION tasks, not a separate task type.
     """
 ).strip()
 

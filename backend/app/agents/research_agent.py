@@ -12,7 +12,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.types import Float
 
-from app.config import RESEARCH_DISTANCE_METRIC, RESEARCH_TIME_FILTER_ENABLED, RESEARCH_TOP_K  # type: ignore[attr-defined]
+from app.config import RESEARCH_DISTANCE_METRIC, RESEARCH_METADATA_FILTER_ENABLED, RESEARCH_TIME_FILTER_ENABLED, RESEARCH_TOP_K  # type: ignore[attr-defined]
 from app.db.models import EvidenceChunk
 from app.db.session import get_session
 
@@ -103,7 +103,8 @@ def run_research(planner_resp: PlannerResponse) -> ResearchResponse:
                 if start is not None and end is not None:
                     filters.append(_ec_table.c.timestamp.between(start, end))
 
-            filters.extend(_build_metadata_filters(task, _ec_table))
+            if RESEARCH_METADATA_FILTER_ENABLED:
+                filters.extend(_build_metadata_filters(task, _ec_table))
 
             stmt = (
                 select(
