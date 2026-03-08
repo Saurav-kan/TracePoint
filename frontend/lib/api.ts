@@ -47,7 +47,18 @@ export function toBackendLabel(displayLabel: string): string {
 }
 
 
-// --- API types (aligned with backend schemas) ---
+// ---------------------------------------------------------------------------
+// Shared API types (aligned with backend schemas)
+// ---------------------------------------------------------------------------
+
+export type EffortLevel = "low" | "medium" | "high";
+
+export type VerdictLabel =
+  | "true"
+  | "likely_true"
+  | "uncertain"
+  | "likely_false"
+  | "false";
 
 export interface CaseCreateResponse {
   case_id: string;
@@ -82,6 +93,75 @@ export interface CaseSummaryResponse {
   created_at: string;
 }
 
+export interface CaseBriefResponse {
+  id: number;
+  case_id: string;
+  title: string;
+  brief_text: string;
+  source_file: string | null;
+  created_at: string;
+}
+
+// --- Planner types ---
+
+export interface MetadataFilterItem {
+  key: string;
+  value: string;
+}
+
+export interface PlannerTask {
+  type: string;
+  question_text: string;
+  vector_query: string;
+  metadata_filter: MetadataFilterItem[];
+}
+
+export interface FrictionSummary {
+  has_friction: boolean;
+  description: string | null;
+}
+
+export interface PlannerResponse {
+  case_id: string;
+  fact_to_check: string;
+  friction_summary: FrictionSummary;
+  tasks: PlannerTask[];
+}
+
+// --- Gatekeeper types ---
+
+export interface GatekeeperResult {
+  valid: boolean;
+  reasons: string[];
+  needs_regeneration: boolean;
+}
+
+// --- Research types ---
+
+export interface EvidenceSnippet {
+  source_document: string | null;
+  case_id: string | null;
+  score: number;
+  chunk_before: string | null;
+  chunk: string;
+  chunk_after: string | null;
+}
+
+export interface ResearchTaskResult {
+  question_text: string;
+  vector_query: string;
+  metadata_filter: MetadataFilterItem[];
+  evidence: EvidenceSnippet[];
+}
+
+export interface ResearchResponse {
+  case_id: string;
+  fact_to_check: string;
+  tasks: ResearchTaskResult[];
+}
+
+// --- Judge types ---
+
 export interface JudgeTaskFact {
   description: string;
   supports_claim: boolean;
@@ -100,7 +180,7 @@ export interface JudgeTaskAssessment {
 
 export interface JudgeOverallVerdict {
   claim: string;
-  verdict: "true" | "likely_true" | "uncertain" | "likely_false" | "false";
+  verdict: VerdictLabel;
   rationale: string;
   supporting_facts: JudgeTaskFact[];
   contradicting_facts: JudgeTaskFact[];
@@ -113,9 +193,53 @@ export interface JudgeResponse {
   overall_verdict: JudgeOverallVerdict;
   refinement_performed?: boolean;
   refinement_suggestion?: string;
+  needs_refinement?: boolean;
+  gatekeeper_passed?: boolean;
+  gatekeeper_reasons?: string[];
 }
 
-// --- API functions ---
+// --- Workflow types ---
+
+export interface PipelineStepEvent {
+  step: string;
+  status: "running" | "complete";
+  iteration: number;
+  total_iterations: number;
+  progress?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface IterationResult {
+  iteration: number;
+  planner: PlannerResponse;
+  gatekeeper: GatekeeperResult;
+  research: ResearchResponse;
+  judge: JudgeResponse;
+}
+
+export interface WorkflowResponse {
+  log_id: number;
+  effort_level: EffortLevel;
+  iterations: IterationResult[];
+  final_verdict: JudgeResponse;
+}
+
+export interface InvestigationLogSummary {
+  id: number;
+  claim: string;
+  effort_level: EffortLevel;
+  verdict: string;
+  created_at: string;
+}
+
+export interface EvidenceDocumentResponse {
+  source_document: string;
+  content: string;
+}
+
+// ---------------------------------------------------------------------------
+// API functions
+// ---------------------------------------------------------------------------
 
 export async function createCase(
   title: string,
@@ -158,15 +282,7 @@ export async function ingestFile(
   return res.json();
 }
 
-export interface CaseBriefResponse {
-  id: number;
-  case_id: string;
-  title: string;
-  brief_text: string;
-  source_file: string | null;
-  created_at: string;
-}
-
+/** Legacy synchronous workflow (kept for backward compatibility) */
 export async function runWorkflow(
   caseId: string,
   factToCheck: string,
@@ -189,6 +305,136 @@ export async function runWorkflow(
   }
   return res.json();
 }
+
+/**
+ * SSE streaming workflow. Calls POST /workflow/run-stream and invokes
+ * callbacks as events arrive.
+ *
+ * Returns an AbortController so the caller can cancel the stream.
+ */
+export function runWorkflowStream(
+  caseId: string,
+  factToCheck: string,
+  options: {
+    briefId?: number;
+    effortLevel?: EffortLevel;
+    onStep?: (event: PipelineStepEvent) => void;
+    onDone?: (data: { log_id: number; data: WorkflowResponse }) => void;
+    onError?: (error: Error) => void;
+  } = {}
+): AbortController {
+  const controller = new AbortController();
+  const { briefId, effortLevel = "low", onStep, onDone, onError } = options;
+
+  const body: Record<string, unknown> = {
+    case_id: caseId,
+    fact_to_check: factToCheck,
+    effort_level: effortLevel,
+  };
+  if (briefId != null) body.brief_id = briefId;
+
+  (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/workflow/run-stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || `runWorkflowStream failed: ${res.status}`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No readable stream");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        let currentEventType = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEventType = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            const jsonStr = line.slice(6);
+            try {
+              const parsed = JSON.parse(jsonStr);
+              if (currentEventType === "step") {
+                onStep?.(parsed as PipelineStepEvent);
+              } else if (currentEventType === "done") {
+                onDone?.(parsed);
+              } else if (currentEventType === "error") {
+                onError?.(new Error(parsed.detail ?? "Pipeline error"));
+              }
+            } catch {
+              /* skip malformed JSON lines */
+            }
+            currentEventType = "";
+          }
+        }
+      }
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") {
+        onError?.(e instanceof Error ? e : new Error(String(e)));
+      }
+    }
+  })();
+
+  return controller;
+}
+
+// --- Investigation log endpoints ---
+
+export async function listInvestigationLogs(
+  caseId: string
+): Promise<InvestigationLogSummary[]> {
+  const res = await fetch(`${API_BASE}/workflow/logs/${caseId}`);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `listInvestigationLogs failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getInvestigationLog(
+  caseId: string,
+  logId: number
+): Promise<WorkflowResponse> {
+  const res = await fetch(`${API_BASE}/workflow/logs/${caseId}/${logId}`);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `getInvestigationLog failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// --- Evidence document endpoint ---
+
+export async function getEvidenceDocument(
+  caseId: string,
+  sourceDocument: string
+): Promise<EvidenceDocumentResponse> {
+  const res = await fetch(
+    `${API_BASE}/ingest/document/${caseId}/${encodeURIComponent(sourceDocument)}`
+  );
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `getEvidenceDocument failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// --- Brief endpoints ---
 
 export async function listBriefs(caseId: string): Promise<CaseBriefResponse[]> {
   const res = await fetch(`${API_BASE}/cases/${caseId}/briefs`);
