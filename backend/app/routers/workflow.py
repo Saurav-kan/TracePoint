@@ -1,15 +1,10 @@
-"""Workflow API routes: LangGraph-based planner -> research -> judge pipeline.
+"""Workflow API routes for the cyclic investigation graph."""
 
-Provides:
-  POST /workflow/run          — legacy synchronous endpoint (returns JudgeResponse)
-  POST /workflow/run-stream   — SSE streaming endpoint (streams pipeline events)
-  GET  /workflow/logs/{case_id}           — list past investigations
-  GET  /workflow/logs/{case_id}/{log_id}  — retrieve a single investigation
-"""
+from datetime import datetime, timezone
 import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
+import re
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
@@ -26,25 +21,26 @@ from app.schemas.planner import PlannerRequest
 from app.schemas.workflow import (
     EFFORT_ITERATIONS,
     InvestigationLogSummary,
+    WorkflowResponse,
     WorkflowRequest,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
+_RESULTS_DIR = Path(__file__).resolve().parents[2] / "tests" / "results"
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+def _resolve_brief(
+    session: Session, case_id: str, brief_id: int | None
+) -> tuple[Case, str | None]:
+    """Look up case + optional brief."""
 
-def _resolve_brief(session: Session, case_id: str, brief_id: int | None) -> tuple[Case, str | None]:
-    """Look up case + optional brief. Raises HTTPException on not-found."""
     case = session.get(Case, case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="Case not found")
 
-    brief_text_override: str | None = None
+    brief_text_override = None
     if brief_id is not None:
         brief = session.get(CaseBrief, brief_id)
         if brief is None or str(brief.case_id) != case_id:
@@ -58,318 +54,258 @@ def _build_initial_state(
     case: Case,
     req: WorkflowRequest | PlannerRequest,
     brief_text_override: str | None,
-    prior_iterations_summary: str | None = None,
 ) -> PipelineState:
-    """Build the initial PipelineState for the LangGraph invocation."""
-    # The graph expects PlannerRequest; convert if needed
+    """Build the graph state shared by both sync and streaming endpoints."""
+
+    max_iterations = 1
     if isinstance(req, WorkflowRequest):
         planner_req = PlannerRequest(
             case_id=req.case_id,
             fact_to_check=req.fact_to_check,
             brief_id=req.brief_id,
         )
+        max_iterations = EFFORT_ITERATIONS[req.effort_level]
     else:
         planner_req = req
 
-    state: PipelineState = {
+    return {
         "case": case,
         "request": planner_req,
         "brief_text_override": brief_text_override,
-        "planner_response": None,
-        "planner_attempts": 0,
-        "planner_gate": None,
-        "research_response": None,
-        "judge_response": None,
-        "judge_refinement_attempts": 0,
-        "refinement_context": None,
-        "planner_supplemental_response": None,
+        "max_iterations": max_iterations,
+        "iterations": [],
     }
-    if prior_iterations_summary is not None:
-        state["prior_iterations_summary"] = prior_iterations_summary
-    return state
 
 
 def _sse_event(event_type: str, data: dict) -> str:
-    """Format a single SSE event."""
+    """Format a server-sent event payload."""
+
     return f"event: {event_type}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
-def _format_prior_iterations_summary(all_iterations: list[dict]) -> str:
-    """Format prior iterations' verdicts and findings for the planner."""
-    parts: list[str] = []
-    for i, it in enumerate(all_iterations, 1):
-        judge = it.get("judge") or {}
-        ov = judge.get("overall_verdict") or {}
-        verdict = ov.get("verdict", "unknown")
-        rationale = ov.get("rationale", "")
-        parts.append(
-            f"Pass {i}: Verdict={verdict}\n"
-            f"Rationale: {rationale[:500]}{'...' if len(rationale) > 500 else ''}"
-        )
-    return (
-        "PRIOR INVESTIGATION PASSES (use these to inform your task design;\n"
-        "probe gaps, challenge weak verdicts, or strengthen confidence):\n\n"
-        + "\n\n".join(parts)
+def _model_to_dict(value):
+    """Convert Pydantic models in graph state into JSON-safe dictionaries."""
+
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    return value
+
+
+def _build_workflow_response(
+    *,
+    log_id: int,
+    effort_level: str,
+    iterations: list[dict],
+    final_verdict: JudgeResponse,
+) -> WorkflowResponse:
+    """Normalize graph state into the API response shape."""
+
+    return WorkflowResponse(
+        log_id=log_id,
+        effort_level=effort_level,
+        iterations=iterations,
+        final_verdict=final_verdict,
     )
 
 
-# Results directory lives alongside the backend source
-_RESULTS_DIR = Path(__file__).resolve().parents[2] / "tests" / "results"
+def _result_filename(claim: str) -> str:
+    """Build a stable, filesystem-safe result filename."""
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", claim).strip("_")[:80]
+    return f"{timestamp}_{slug or 'workflow_result'}.txt"
 
 
-def _dump_results_to_file(
-    case_title: str,
-    claim: str,
-    effort_level: str,
-    final_verdict: dict | None,
-    iterations: list[dict],
-) -> Path | None:
-    """Write a human-readable results file for debugging/testing."""
-    try:
-        _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        safe_claim = claim[:40].replace(" ", "_").replace("?", "").replace("'", "")
-        filename = f"{ts}_{safe_claim}.txt"
-        filepath = _RESULTS_DIR / filename
+def _write_result_snapshot(req: WorkflowRequest, response: WorkflowResponse) -> None:
+    """Persist a completed workflow response under backend/tests/results."""
+    _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = _RESULTS_DIR / _result_filename(req.fact_to_check)
+    output_path.write_text(
+        "\n".join(
+            [
+                "======================================================================",
+                "TRACEPOINT WORKFLOW RESULT",
+                f"Generated: {datetime.now(timezone.utc).isoformat()}",
+                "======================================================================",
+                "",
+                "REQUEST",
+                json.dumps(req.model_dump(mode="json"), indent=2),
+                "",
+                "RESPONSE",
+                json.dumps(response.model_dump(mode="json"), indent=2),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
-        lines: list[str] = []
-        lines.append("=" * 70)
-        lines.append(f"TRACEPOINT INVESTIGATION RESULT")
-        lines.append(f"Generated: {datetime.now(timezone.utc).isoformat()}")
-        lines.append("=" * 70)
-        lines.append(f"\nCase:          {case_title}")
-        lines.append(f"Claim:         {claim}")
-        lines.append(f"Effort Level:  {effort_level.upper()}")
-        lines.append(f"Iterations:    {len(iterations)}")
-
-        if final_verdict:
-            ov = final_verdict.get("overall_verdict") or {}
-            verdict_str = str(ov.get("verdict", "N/A")).upper()
-            lines.append(f"\n{'─' * 70}")
-            lines.append("FINAL VERDICT")
-            lines.append(f"{'─' * 70}")
-            lines.append(f"Overall:       {verdict_str}")
-            lines.append(f"Fact Checked:  {final_verdict.get('fact_to_check', 'N/A')}")
-
-            tasks = final_verdict.get("tasks", [])
-            if tasks:
-                lines.append(f"\n{'─' * 70}")
-                lines.append(f"TASK-LEVEL ASSESSMENTS ({len(tasks)} tasks)")
-                lines.append(f"{'─' * 70}")
-                for i, task in enumerate(tasks, 1):
-                    lines.append(f"\n  [{i}] {task.get('question_text', 'N/A')}")
-                    lines.append(f"      Answer:     {task.get('answer', 'N/A')}")
-                    conf = task.get("confidence")
-                    lines.append(f"      Confidence: {conf if conf is not None else 'N/A'}")
-                    key_facts = task.get("key_facts", [])
-                    if key_facts:
-                        lines.append("      Key Facts:")
-                        for kf in key_facts:
-                            direction = "↑" if kf.get("supports_claim", False) else "↓"
-                            lines.append(f"        {direction} {kf.get('description', 'N/A')}")
-
-        # Include planner tasks from first iteration for context
-        if iterations and iterations[0].get("planner"):
-            planner = iterations[0]["planner"]
-            ptasks = planner.get("tasks", [])
-            if ptasks:
-                lines.append(f"\n{'─' * 70}")
-                lines.append(f"PLANNER TASKS ({len(ptasks)} tasks)")
-                lines.append(f"{'─' * 70}")
-                for i, pt in enumerate(ptasks, 1):
-                    lines.append(f"  [{i}] [{pt.get('type', 'N/A')}] {pt.get('question_text', 'N/A')}")
-                    lines.append(f"      Vector Query: {pt.get('vector_query', 'N/A')}")
-
-        # Include research evidence from first iteration
-        if iterations and iterations[0].get("research"):
-            research = iterations[0]["research"]
-            rtasks = research.get("tasks", [])
-            if rtasks:
-                lines.append(f"\n{'─' * 70}")
-                lines.append(f"RESEARCH EVIDENCE")
-                lines.append(f"{'─' * 70}")
-                for i, rt in enumerate(rtasks, 1):
-                    lines.append(f"\n  [{i}] {rt.get('question_text', 'N/A')}")
-                    evidence = rt.get("evidence", [])
-                    if evidence:
-                        for ev in evidence[:3]:  # Top 3 per task
-                            lines.append(f"      📄 {ev.get('source_document', 'unknown')} (score: {ev.get('score', 0):.2f})")
-                            chunk = ev.get("chunk", "")[:150]
-                            lines.append(f"         {chunk}...")
-                    else:
-                        lines.append("      (no evidence retrieved)")
-
-        lines.append(f"\n{'=' * 70}")
-        lines.append("END OF REPORT")
-        lines.append("=" * 70)
-
-        filepath.write_text("\n".join(lines), encoding="utf-8")
-        logger.info("Results written to %s", filepath)
-        return filepath
-    except Exception as e:
-        logger.error("Failed to dump results to file: %s", e)
-        return None
-
-
-# ---------------------------------------------------------------------------
-# POST /workflow/run  (legacy synchronous)
-# ---------------------------------------------------------------------------
 
 @router.post("/run", response_model=JudgeResponse)
 async def run_workflow(req: PlannerRequest) -> JudgeResponse:
-    """Run the full pipeline synchronously. Returns JudgeResponse."""
+    """Run the workflow synchronously and return the final judge response."""
+
     session: Session = get_session()
     try:
-        case, brief_text_override = _resolve_brief(
-            session, str(req.case_id), req.brief_id
-        )
+        case, brief_text_override = _resolve_brief(session, str(req.case_id), req.brief_id)
     finally:
         session.close()
 
-    initial_state = _build_initial_state(case, req, brief_text_override)
-    result = await compiled_graph.ainvoke(initial_state)
-    return result["judge_response"]
+    try:
+        result = await compiled_graph.ainvoke(
+            _build_initial_state(case, req, brief_text_override)
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    final_verdict = result.get("final_verdict")
+    if final_verdict is None:
+        raise RuntimeError("Workflow completed without a final verdict.")
+    return final_verdict
 
-# ---------------------------------------------------------------------------
-# POST /workflow/run-stream  (SSE streaming)
-# ---------------------------------------------------------------------------
 
 async def _stream_pipeline(
     req: WorkflowRequest,
     case: Case,
     brief_text_override: str | None,
 ) -> AsyncGenerator[str, None]:
-    """Generator that runs the pipeline and yields SSE events."""
-    iterations_count = EFFORT_ITERATIONS.get(req.effort_level, 1)
-    all_iterations: list[dict] = []
-    pipeline_error: str | None = None
+    """Stream planner, gatekeeper, research, and judge steps over SSE."""
+
+    initial_state = _build_initial_state(case, req, brief_text_override)
+    total_iterations = initial_state["max_iterations"]
+    completed_iterations = 0
+    final_verdict: JudgeResponse | None = None
+    iterations: list[dict] = []
 
     try:
-        for iteration in range(1, iterations_count + 1):
-            # --- Planner ---
-            yield _sse_event("step", {
-                "step": "planner", "status": "running",
-                "iteration": iteration, "total_iterations": iterations_count,
-            })
+        async for chunk in compiled_graph.astream(initial_state, stream_mode="updates"):
+            active_iteration = completed_iterations + 1
 
-            # Build prior iterations summary for passes 2+ so the planner can refine
-            prior_summary: str | None = None
-            if iteration > 1 and all_iterations:
-                prior_summary = _format_prior_iterations_summary(all_iterations)
+            if "planner_node" in chunk:
+                outputs = chunk["planner_node"]
+                yield _sse_event(
+                    "step",
+                    {
+                        "step": "planner",
+                        "status": "complete",
+                        "iteration": active_iteration,
+                        "total_iterations": total_iterations,
+                        "data": _model_to_dict(outputs["planner_result"]),
+                    },
+                )
 
-            initial_state = _build_initial_state(
-                case, req, brief_text_override, prior_iterations_summary=prior_summary
-            )
-            try:
-                result = await compiled_graph.ainvoke(initial_state)
-            except Exception as e:
-                logger.error("Pipeline failed on iteration %d: %s", iteration, e)
-                pipeline_error = str(e)
-                yield _sse_event("error", {"detail": str(e)})
-                return
+            if "gatekeeper_node" in chunk:
+                outputs = chunk["gatekeeper_node"]
+                yield _sse_event(
+                    "step",
+                    {
+                        "step": "gatekeeper",
+                        "status": "complete",
+                        "iteration": active_iteration,
+                        "total_iterations": total_iterations,
+                        "data": _model_to_dict(outputs["gatekeeper_result"]),
+                    },
+                )
 
-            planner_data = result.get("planner_response")
-            yield _sse_event("step", {
-                "step": "planner", "status": "complete",
-                "iteration": iteration, "total_iterations": iterations_count,
-                "data": planner_data.model_dump(mode="json") if planner_data else None,
-            })
+            if "research_node" in chunk:
+                outputs = chunk["research_node"]
+                yield _sse_event(
+                    "step",
+                    {
+                        "step": "research",
+                        "status": "complete",
+                        "iteration": active_iteration,
+                        "total_iterations": total_iterations,
+                        "data": _model_to_dict(outputs["research_result"]),
+                    },
+                )
 
-            # --- Gatekeeper ---
-            gate_data = result.get("planner_gate")
-            yield _sse_event("step", {
-                "step": "gatekeeper", "status": "complete",
-                "iteration": iteration, "total_iterations": iterations_count,
-                "data": gate_data.model_dump(mode="json") if hasattr(gate_data, "model_dump") else (gate_data if isinstance(gate_data, dict) else None),
-            })
+            if "judge_node" in chunk:
+                outputs = chunk["judge_node"]
+                judge_result = outputs["judge_result"]
+                if outputs.get("iterations"):
+                    latest_iteration = outputs["iterations"][0]
+                    iterations.append(
+                        {
+                            "iteration": latest_iteration["iteration"],
+                            "planner": _model_to_dict(latest_iteration["planner"]),
+                            "gatekeeper": _model_to_dict(latest_iteration["gatekeeper"]),
+                            "research": _model_to_dict(latest_iteration["research"]),
+                            "judge": _model_to_dict(latest_iteration["judge"]),
+                        }
+                    )
+                    completed_iterations = latest_iteration["iteration"]
 
-            # --- Research ---
-            research_data = result.get("research_response")
-            yield _sse_event("step", {
-                "step": "research", "status": "complete",
-                "iteration": iteration, "total_iterations": iterations_count,
-                "data": research_data.model_dump(mode="json") if research_data else None,
-            })
-
-            # --- Judge ---
-            judge_data = result.get("judge_response")
-            yield _sse_event("step", {
-                "step": "judge", "status": "complete",
-                "iteration": iteration, "total_iterations": iterations_count,
-                "data": judge_data.model_dump(mode="json") if judge_data else None,
-            })
-
-            iteration_result = {
-                "iteration": iteration,
-                "planner": planner_data.model_dump(mode="json") if planner_data else None,
-                "gatekeeper": gate_data.model_dump(mode="json") if hasattr(gate_data, "model_dump") else gate_data,
-                "research": research_data.model_dump(mode="json") if research_data else None,
-                "judge": judge_data.model_dump(mode="json") if judge_data else None,
-            }
-            all_iterations.append(iteration_result)
-
-        # Use the last judge result as the final verdict
-        final_verdict = all_iterations[-1]["judge"] if all_iterations else None
-
-        # Persist to investigation_logs
-        log_id = -1
-        try:
-            session = get_session()
-            log_entry = InvestigationLog(
-                case_id=str(req.case_id),
-                claim=req.fact_to_check,
-                effort_level=req.effort_level,
-                verdict=(final_verdict.get("overall_verdict") or {}).get("verdict", "uncertain") if final_verdict else "uncertain",
-                result_payload={
-                    "effort_level": req.effort_level,
-                    "iterations": all_iterations,
-                    "final_verdict": final_verdict,
-                },
-            )
-            session.add(log_entry)
-            session.commit()
-            log_id = log_entry.id
-            session.close()
-        except Exception as e:
-            logger.error("Failed to persist investigation log: %s", e)
-
-        # Final done event
-        done_payload = {
-            "log_id": log_id,
-            "data": {
-                "log_id": log_id,
-                "effort_level": req.effort_level,
-                "iterations": all_iterations,
-                "final_verdict": final_verdict,
+                yield _sse_event(
+                    "step",
+                    {
+                        "step": "judge",
+                        "status": "complete",
+                        "iteration": completed_iterations or active_iteration,
+                        "total_iterations": total_iterations,
+                        "data": _model_to_dict(judge_result),
+                    },
+                )
+                final_verdict = outputs.get("final_verdict") or judge_result
+    except Exception as exc:
+        logger.exception("Workflow stream failed")
+        yield _sse_event(
+            "error",
+            {
+                "detail": str(exc),
+                "iteration": completed_iterations + 1,
+                "total_iterations": total_iterations,
             },
-        }
-        yield _sse_event("done", done_payload)
+        )
+        return
 
-    finally:
-        # Always dump results file — even on pipeline failure — so partial
-        # data is preserved for debugging.
-        final_verdict = all_iterations[-1]["judge"] if all_iterations else None
-        _dump_results_to_file(
-            case_title=case.title,
+    if final_verdict is None:
+        raise RuntimeError("Workflow stream completed without a final verdict.")
+
+    workflow_response = _build_workflow_response(
+        log_id=-1,
+        effort_level=req.effort_level,
+        iterations=iterations,
+        final_verdict=final_verdict,
+    )
+
+    log_id = -1
+    session = get_session()
+    try:
+        log_entry = InvestigationLog(
+            case_id=str(req.case_id),
             claim=req.fact_to_check,
             effort_level=req.effort_level,
-            final_verdict=final_verdict,
-            iterations=all_iterations,
+            verdict=final_verdict.overall_verdict.verdict,
+            result_payload=workflow_response.model_dump(mode="json"),
         )
+        session.add(log_entry)
+        session.commit()
+        log_id = log_entry.id
+    except Exception as exc:
+        logger.error("Failed to persist log: %s", exc)
+    finally:
+        session.close()
+
+    done_response = workflow_response.model_copy(update={"log_id": log_id})
+    try:
+        _write_result_snapshot(req, done_response)
+    except Exception:
+        logger.exception("Failed to write workflow result snapshot")
+    yield _sse_event(
+        "done",
+        {
+            "log_id": log_id,
+            "data": done_response.model_dump(mode="json"),
+        },
+    )
 
 
 @router.post("/run-stream")
 async def run_workflow_stream(req: WorkflowRequest):
-    """SSE streaming endpoint that emits pipeline step events as they complete."""
-    # Resolve case/brief before streaming so HTTPException returns proper 404
-    # (once StreamingResponse starts, status 200 is committed and exceptions
-    # would cause an abrupt closed stream with no error event)
+    """Run the workflow as an SSE stream."""
+
     session: Session = get_session()
     try:
-        case, brief_text_override = _resolve_brief(
-            session, str(req.case_id), req.brief_id
-        )
+        case, brief_text_override = _resolve_brief(session, str(req.case_id), req.brief_id)
     finally:
         session.close()
 
@@ -384,13 +320,10 @@ async def run_workflow_stream(req: WorkflowRequest):
     )
 
 
-# ---------------------------------------------------------------------------
-# Investigation log CRUD
-# ---------------------------------------------------------------------------
-
 @router.get("/logs/{case_id}")
 async def list_investigation_logs(case_id: str) -> list[InvestigationLogSummary]:
-    """List all investigation logs for a case."""
+    """List stored investigation logs for a case."""
+
     session = get_session()
     try:
         stmt = (
@@ -415,7 +348,8 @@ async def list_investigation_logs(case_id: str) -> list[InvestigationLogSummary]
 
 @router.get("/logs/{case_id}/{log_id}")
 async def get_investigation_log(case_id: str, log_id: int):
-    """Retrieve a single investigation log."""
+    """Return a persisted workflow result."""
+
     session = get_session()
     try:
         log = session.get(InvestigationLog, log_id)

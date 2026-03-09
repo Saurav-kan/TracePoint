@@ -179,9 +179,7 @@ def _build_overall_verdict(
             contradicting_facts=[],
         )
 
-    supporting_facts: List[JudgeTaskFact] = []
-    for ta in supported:
-        supporting_facts.extend(ta.key_facts)
+    supporting_facts, contradicting_facts = _select_overall_facts(task_assessments)
 
     return JudgeOverallVerdict(
         claim=claim,
@@ -192,8 +190,44 @@ def _build_overall_verdict(
             "supported tasks as leaning the claim toward being true."
         ),
         supporting_facts=supporting_facts,
-        contradicting_facts=[],
+        contradicting_facts=contradicting_facts,
     )
+
+
+def _select_overall_facts(
+    task_assessments: List[JudgeTaskAssessment],
+    *,
+    max_per_side: int = 5,
+) -> Tuple[List[JudgeTaskFact], List[JudgeTaskFact]]:
+    """Build grounded overall facts from per-task facts.
+
+    This avoids trusting the LLM to bucket overall facts correctly when we
+    already have fact-level support direction and evidence links from the
+    per-task assessments.
+    """
+    prioritized = [ta for ta in task_assessments if ta.sufficient_evidence]
+    if not prioritized:
+        prioritized = task_assessments
+
+    supporting: List[JudgeTaskFact] = []
+    contradicting: List[JudgeTaskFact] = []
+
+    for ta in prioritized:
+        for fact in ta.key_facts:
+            copied_fact = fact.model_copy()
+            if fact.supports_claim:
+                if len(supporting) < max_per_side:
+                    supporting.append(copied_fact)
+            else:
+                if len(contradicting) < max_per_side:
+                    contradicting.append(copied_fact)
+            if (
+                len(supporting) >= max_per_side
+                and len(contradicting) >= max_per_side
+            ):
+                return supporting, contradicting
+
+    return supporting, contradicting
 
 
 def _format_assessments_for_overall(
@@ -258,28 +292,7 @@ async def _build_overall_verdict_llm(
         needs, questions = _derive_heuristic_refinement(task_assessments)
         return verdict, needs, questions
 
-    supporting: List[JudgeTaskFact] = []
-    for kf in data.get("supporting_facts", []):
-        if isinstance(kf, dict) and "description" in kf:
-            supporting.append(
-                JudgeTaskFact(
-                    description=str(kf["description"]),
-                    supports_claim=True,
-                    source_task_index=0,
-                    evidence_indices=[],
-                )
-            )
-    contradicting: List[JudgeTaskFact] = []
-    for kf in data.get("contradicting_facts", []):
-        if isinstance(kf, dict) and "description" in kf:
-            contradicting.append(
-                JudgeTaskFact(
-                    description=str(kf["description"]),
-                    supports_claim=False,
-                    source_task_index=0,
-                    evidence_indices=[],
-                )
-            )
+    supporting, contradicting = _select_overall_facts(task_assessments)
 
     verdict_raw = str(data.get("verdict", "uncertain")).lower()
     if verdict_raw not in ("true", "likely_true", "uncertain", "likely_false", "false"):

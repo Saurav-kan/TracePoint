@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "C:\Users\kande\Desktop\Projects\TracePoint\backend\app\routers\workflow.py", line 15, in <module>
+    from app.graph.graph import compiled_graph
+  File "C:\Users\kande\Desktop\Projects\TracePoint\backend\app\graph\graph.py", line 7, in <module>
+    from app.graph.nodes import agent_node, tools_node
+  File "C:\Users\kande\Desktop\Projects\TracePoint\backend\app\graph\nodes.py", line 7, in <module>
+    from langgraph.prebuilt import ToolNode
+  File "C:\Users\kande\AppData\Roaming\Python\Python312\site-packages\langgraph\prebuilt\__init__.py", line 3, in <module>
+    from langgraph.prebuilt.chat_agent_executor import create_react_agent
+  File "C:\Users\kande\AppData\Roaming\Python\Python312\site-packages\langgraph\prebuilt\chat_agent_executor.py", line 13, in <module>
+    from langchain_core.language_models import (
+ImportError: cannot import name 'BaseChatModel' from 'langchain_core.language_models' (C:\Users\kande\AppData\Roaming\Python\Python312\site-packages\langchain_core\language_models\__init__.py). Did you mean: 'SimpleChatModel'?

@@ -41,7 +41,7 @@ RESEARCH_TIME_FILTER_ENABLED = (
     os.getenv("RESEARCH_TIME_FILTER_ENABLED", "false").lower() == "true"
 )
 RESEARCH_METADATA_FILTER_ENABLED = (
-    os.getenv("RESEARCH_METADATA_FILTER_ENABLED", "false").lower() == "true"
+    os.getenv("RESEARCH_METADATA_FILTER_ENABLED", "true").lower() == "true"
 )
 RESEARCH_DISTANCE_METRIC = os.getenv("RESEARCH_DISTANCE_METRIC", "cosine").lower()
 if RESEARCH_DISTANCE_METRIC not in {"cosine", "l2"}:

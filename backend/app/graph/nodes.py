@@ -1,159 +1,179 @@
-"""Graph node functions for the LangGraph investigation pipeline.
-
-Each node is a thin wrapper around an existing agent or gatekeeper function.
-Nodes read from and write to the shared PipelineState TypedDict.
-"""
+"""Graph nodes for the cyclic planner/research/judge workflow."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
-
-from fastapi import HTTPException
-from pydantic import ValidationError
 
 from app.agents.gatekeeper import GatekeeperResult, validate_planner_output
 from app.agents.judge_agent import run_judge
 from app.agents.planner_agent import run_planner
 from app.agents.research_agent import run_research
-from app.graph.state import PipelineState
+from app.graph.state import PipelineState, WorkflowIteration
 
 logger = logging.getLogger(__name__)
 
+_PLANNER_MAX_ATTEMPTS = 3
 
-async def planner_node(state: PipelineState) -> PipelineState:
-    """Run the planner agent.
 
-    In normal mode: generates 5 investigative tasks, increments attempt counter.
-    In refinement mode (refinement_context present): produces 1-3 supplemental
-    tasks written to planner_supplemental_response.
-    """
+def _iteration_number(state: PipelineState) -> int:
+    """Return the 1-based iteration currently being executed."""
+
+    return len(state.get("iterations", [])) + 1
+
+
+def _build_prior_iterations_summary(state: PipelineState) -> str | None:
+    """Summarize earlier passes so refinement planning has context."""
+
+    iterations = state.get("iterations", [])
+    if not iterations:
+        return None
+
+    lines = [
+        "PRIOR INVESTIGATION PASSES:",
+    ]
+    for item in iterations:
+        judge = item["judge"]
+        lines.append(
+            f"- Iteration {item['iteration']}: verdict={judge.overall_verdict.verdict}; "
+            f"needs_refinement={judge.needs_refinement}; "
+            f"rationale={judge.overall_verdict.rationale}"
+        )
+        if judge.refinement_questions:
+            lines.append(
+                "  Outstanding questions: "
+                + "; ".join(judge.refinement_questions)
+            )
+
+    return "\n".join(lines)
+
+
+def _build_refinement_context(state: PipelineState) -> str:
+    """Format judge follow-up questions for the next planner pass."""
+
+    judge = state["judge_result"]
+    questions = judge.refinement_questions or []
+
+    lines = [
+        "The previous judge pass reported insufficient evidence for these questions:",
+    ]
+    lines.extend(f"- {question}" for question in questions)
+
+    if judge.refinement_suggestion:
+        lines.append("")
+        lines.append(f"Additional judge guidance: {judge.refinement_suggestion}")
+
+    return "\n".join(lines)
+
+
+async def planner_node(state: PipelineState) -> dict:
+    """Run planner generation, including gatekeeper retries for the first pass."""
+
+    case = state["case"]
+    request = state["request"]
+    brief_text_override = state.get("brief_text_override")
     refinement_context = state.get("refinement_context")
+    prior_iterations_summary = _build_prior_iterations_summary(state)
 
-    if refinement_context is not None:
-        # Refinement mode — produce supplemental tasks, skip attempt counting
-        response = await run_planner(
-            state["case"],
-            state["request"],
-            brief_text_override=state.get("brief_text_override"),
+    if refinement_context:
+        planner_result = await run_planner(
+            case,
+            request,
+            brief_text_override=brief_text_override,
             refinement_context=refinement_context,
+            prior_iterations_summary=prior_iterations_summary,
         )
-        return {"planner_supplemental_response": response}
-
-    # Normal mode
-    attempts = state.get("planner_attempts", 0) + 1
-    try:
-        response = await run_planner(
-            state["case"],
-            state["request"],
-            brief_text_override=state.get("brief_text_override"),
-            prior_iterations_summary=state.get("prior_iterations_summary"),
-        )
-    except (ValidationError, ValueError) as exc:
-        # Schema validation failed — surface as a failed gate so the retry
-        # loop in _route_after_planner handles it instead of crashing.
-        logger.warning(
-            "Planner output failed schema validation (attempt %d): %s",
-            attempts,
-            exc,
-        )
-        gate = GatekeeperResult(
-            valid=False,
-            reasons=[f"Schema validation error: {exc}"],
-            needs_regeneration=True,
+        gatekeeper_result = GatekeeperResult(
+            valid=True,
+            reasons=["Refinement pass bypassed the full 10-task gatekeeper checks."],
+            needs_regeneration=False,
         )
         return {
-            "planner_attempts": attempts,
-            "planner_gate": gate,
+            "planner_result": planner_result,
+            "gatekeeper_result": gatekeeper_result,
         }
 
+    planner_result = None
+    gatekeeper_result = None
+    for attempt in range(1, _PLANNER_MAX_ATTEMPTS + 1):
+        planner_result = await run_planner(
+            case,
+            request,
+            brief_text_override=brief_text_override,
+            prior_iterations_summary=prior_iterations_summary,
+        )
+        gatekeeper_result = validate_planner_output(planner_result, case)
+        if gatekeeper_result.valid:
+            break
+        logger.warning(
+            "Planner output failed gatekeeper validation (attempt %s): %s",
+            attempt,
+            "; ".join(gatekeeper_result.reasons),
+        )
+
+    if planner_result is None or gatekeeper_result is None:
+        raise RuntimeError("Planner node failed to produce a result.")
+
+    if not gatekeeper_result.valid:
+        detail = "Planner output failed validation: " + "; ".join(
+            gatekeeper_result.reasons
+        )
+        raise RuntimeError(detail)
+
     return {
-        "planner_response": response,
-        "planner_attempts": attempts,
-        "planner_gate": None,
+        "planner_result": planner_result,
+        "gatekeeper_result": gatekeeper_result,
+        "refinement_context": None,
     }
 
 
-async def planner_gatekeeper_node(state: PipelineState) -> PipelineState:
-    """Validate the planner output against investigative heuristics."""
-    gate = validate_planner_output(state["planner_response"], state["case"])
-    return {"planner_gate": gate}
+async def gatekeeper_node(state: PipelineState) -> dict:
+    """Emit the gatekeeper result as a distinct graph step."""
+
+    return {"gatekeeper_result": state["gatekeeper_result"]}
 
 
-async def research_node(state: PipelineState) -> PipelineState:
-    """Run the research agent to retrieve evidence for each planner task."""
-    response = run_research(state["planner_response"])
-    return {"research_response": response}
+async def research_node(state: PipelineState) -> dict:
+    """Run vector research for the current planner output."""
+
+    research_result = await asyncio.to_thread(run_research, state["planner_result"])
+    return {"research_result": research_result}
 
 
-async def judge_node(state: PipelineState) -> PipelineState:
-    """Run the judge agent to synthesize evidence into a verdict.
+async def judge_node(state: PipelineState) -> dict:
+    """Judge the current research pass and decide whether to refine."""
 
-    The judge internally runs its own gatekeeper (judge_gatekeeper)
-    and attaches the validation result to the response.
-    """
-    refinement_performed = state.get("judge_refinement_attempts", 0) > 0
-    response = await run_judge(
-        state["research_response"],
+    iteration_number = _iteration_number(state)
+    judge_result = await run_judge(
+        state["research_result"],
         case=state["case"],
         case_brief_override=state.get("brief_text_override"),
-        refinement_performed=refinement_performed,
+        refinement_performed=iteration_number > 1,
     )
-    return {"judge_response": response}
 
+    iteration_record: WorkflowIteration = {
+        "iteration": iteration_number,
+        "planner": state["planner_result"],
+        "gatekeeper": state["gatekeeper_result"],
+        "research": state["research_result"],
+        "judge": judge_result,
+    }
 
-async def prepare_refinement_node(state: PipelineState) -> PipelineState:
-    """Prepare the refinement context from the judge's refinement questions.
+    updates: dict = {
+        "judge_result": judge_result,
+        "iterations": [iteration_record],
+    }
 
-    Reads judge_response.refinement_questions, formats them into a string
-    for the planner, and sets judge_refinement_attempts to 1 so the loop
-    cannot trigger again.
-    """
-    judge_resp = state.get("judge_response")
-    if judge_resp is None:
-        raise HTTPException(
-            status_code=500,
-            detail="prepare_refinement_node requires judge_response; state may be inconsistent",
+    max_iterations = state.get("max_iterations", 1)
+    if judge_result.needs_refinement and iteration_number < max_iterations:
+        updates["refinement_context"] = _build_refinement_context(
+            {
+                **state,
+                "judge_result": judge_result,
+            }
         )
-    questions = judge_resp.refinement_questions
-    formatted = "\n".join(f"- {q}" for q in questions)
-    return {
-        "refinement_context": formatted,
-        "judge_refinement_attempts": 1,
-    }
+    else:
+        updates["final_verdict"] = judge_result
+        updates["refinement_context"] = None
 
-
-async def research_supplemental_node(state: PipelineState) -> PipelineState:
-    """Run research on supplemental planner tasks and merge with original results.
-
-    Calls run_research on planner_supplemental_response, then appends
-    the supplemental tasks to the existing research_response.
-    """
-    supplemental_planner = state["planner_supplemental_response"]
-    supplemental_research = run_research(supplemental_planner)
-
-    original_research = state["research_response"]
-    merged_tasks = list(original_research.tasks) + list(supplemental_research.tasks)
-
-    # Build merged response preserving original case_id and fact_to_check
-    from app.schemas.research import ResearchResponse
-
-    merged = ResearchResponse(
-        case_id=original_research.case_id,
-        fact_to_check=original_research.fact_to_check,
-        tasks=merged_tasks,
-    )
-    return {
-        "research_response": merged,
-        # Clear refinement_context so planner routing works correctly
-        # if the planner node is visited again (it won't be, but defensive)
-        "refinement_context": None,
-        "planner_supplemental_response": None,
-    }
-
-
-async def error_node(state: PipelineState) -> PipelineState:
-    """Terminal node: raises HTTP 500 with gatekeeper failure reasons."""
-    gate = state.get("planner_gate")
-    reasons = gate.reasons if gate else ["unknown error"]
-    detail = "Planner output failed validation: " + "; ".join(reasons)
-    raise HTTPException(status_code=500, detail=detail)
+    return updates

@@ -44,6 +44,17 @@ _CONTRARY_KEYWORDS = [
     "unlikely",
 ]
 
+_CONFIRMATIONAL_KEYWORDS = [
+    "support the claim",
+    "supports the claim",
+    "confirm the claim",
+    "confirms the claim",
+    "verify the claim",
+    "verifies the claim",
+    "prove the claim",
+    "proves the claim",
+]
+
 
 class GatekeeperResult(BaseModel):
     valid: bool = Field(..., description="Whether the planner output passed checks")
@@ -78,12 +89,34 @@ def _has_peripheral_task(resp: PlannerResponse) -> bool:
     return False
 
 
+def _is_contrary_task(resp: PlannerResponse, idx: int) -> bool:
+    """Return whether a task is sufficiently non-confirmational.
+
+    The primary signal is contrary language in the task text. As a secondary
+    fallback, honor the planner contract that slots 6-10 are the
+    non-confirmational half, unless those tasks still read like clearly
+    confirmational searches.
+    """
+
+    task = resp.tasks[idx]
+    text = (task.question_text + " " + task.vector_query).lower()
+
+    if any(kw in text for kw in _CONTRARY_KEYWORDS):
+        return True
+
+    second_half_start = len(resp.tasks) // 2
+    if len(resp.tasks) >= 10 and idx >= second_half_start:
+        return not any(kw in text for kw in _CONFIRMATIONAL_KEYWORDS)
+
+    return False
+
+
 def _count_contrary_tasks(resp: PlannerResponse) -> int:
-    """Count tasks whose question_text or vector_query contain contrary keywords."""
+    """Count tasks that appear to be non-confirmational."""
+
     count = 0
-    for task in resp.tasks:
-        text = (task.question_text + " " + task.vector_query).lower()
-        if any(kw in text for kw in _CONTRARY_KEYWORDS):
+    for idx, _task in enumerate(resp.tasks):
+        if _is_contrary_task(resp, idx):
             count += 1
     return count
 

@@ -32,6 +32,12 @@ from app.schemas.planner import (
     SearchBoundary,
 )
 
+_DISCONFIRMING_HINTS = (
+    "Search for an alibi, an alternative suspect, exonerating evidence, "
+    "contradictory evidence, proof the subject was not involved, or signs the "
+    "claim is false."
+)
+
 
 def _build_system_prompt(
     allowed_labels: Optional[List[str]] = None,
@@ -90,6 +96,12 @@ def _build_system_prompt(
         "innocence. The non-confirmational vector_query must search for evidence AGAINST",
         "the claim, not for the claim itself. This ensures equal investigative effort",
         "in both directions.",
+        "Formatting rule for slots 6-10: start question_text with '[DISCONFIRMING]'",
+        "and write vector_query so it explicitly includes at least one contrary idea",
+        "such as 'alibi', 'alternative suspect', 'exonerating evidence',",
+        "'contradictory evidence', 'not involved', 'ruled out', or 'false claim'.",
+        "Do not use vague neutral wording for slots 6-10. Make the disconfirming",
+        "intent obvious from the text alone.",
         "Always include at least one peripheral-detail question that probes",
         "minor contextual details that would be hard to fabricate.",
         "If a major inconsistency (friction) is described, at least two of",
@@ -139,9 +151,59 @@ def _build_system_prompt(
         [
             "You must return ONLY a JSON object with a single top-level key 'tasks'.",
             "'tasks' must be a list of exactly TEN objects, each with fields: type, question_text, vector_query, metadata_filter.",
+            "Return the tasks in order: slots 1-5 confirmational, slots 6-10 disconfirming.",
         ]
     )
     return "\n\n".join(parts)
+
+
+def _normalize_main_pass_tasks(resp: PlannerResponse) -> PlannerResponse:
+    """Make the second half of the main task list explicitly disconfirming.
+
+    The planner is instructed to do this already, but we normalize the wording
+    so downstream gatekeeping and debugging are stable across model providers.
+    """
+
+    if len(resp.tasks) != 10:
+        return resp
+
+    normalized_tasks = []
+    second_half_start = len(resp.tasks) // 2
+    contrary_markers = (
+        "alibi",
+        "alternative suspect",
+        "exonerating",
+        "contradictory",
+        "not involved",
+        "ruled out",
+        "false claim",
+        "false",
+    )
+
+    for idx, task in enumerate(resp.tasks):
+        if idx < second_half_start:
+            normalized_tasks.append(task)
+            continue
+
+        question_text = task.question_text.strip()
+        if "[DISCONFIRMING]" not in question_text.upper():
+            question_text = f"[DISCONFIRMING] {question_text}"
+
+        vector_query = task.vector_query.strip()
+        lowered = vector_query.lower()
+        if not any(marker in lowered for marker in contrary_markers):
+            vector_query = f"{vector_query} {_DISCONFIRMING_HINTS}"
+
+        normalized_tasks.append(
+            task.model_copy(
+                update={
+                    "question_text": question_text,
+                    "vector_query": vector_query,
+                }
+            )
+        )
+
+    return resp.model_copy(update={"tasks": normalized_tasks})
 
 
 def _build_refinement_system_prompt(
@@ -365,9 +427,10 @@ async def run_planner(
 
     # If configured, use OpenAI or Groq as the planner provider
     if PLANNER_PROVIDER in ("openai", "groq"):
-        return _call_llm_provider(
+        resp = _call_llm_provider(
             system_prompt, user_content, friction, search_boundary, req, PLANNER_PROVIDER
         )
+        return resp if refinement_context is not None else _normalize_main_pass_tasks(resp)
 
     # Default: use Gemini as the planner provider
     if not GOOGLE_API_KEY:
@@ -388,14 +451,16 @@ async def run_planner(
         if hasattr(response, "parsed") and isinstance(
             response.parsed, PlannerResponse
         ):
-            return response.parsed
+            resp = response.parsed
+            return resp if refinement_context is not None else _normalize_main_pass_tasks(resp)
         if hasattr(response, "text") and response.text:
-            return PlannerResponse.model_validate_json(response.text)
+            resp = PlannerResponse.model_validate_json(response.text)
+            return resp if refinement_context is not None else _normalize_main_pass_tasks(resp)
         raise RuntimeError("Planner agent returned no usable JSON payload.")
     except Exception:
         await client.aio.aclose()
         if SILICONFLOW_API_KEY:
-            return await asyncio.to_thread(
+            resp = await asyncio.to_thread(
                 _planner_call_siliconflow,
                 system_prompt,
                 user_content,
@@ -403,4 +468,5 @@ async def run_planner(
                 search_boundary,
                 req,
             )
+            return resp if refinement_context is not None else _normalize_main_pass_tasks(resp)
         raise
