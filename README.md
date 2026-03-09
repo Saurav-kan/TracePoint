@@ -7,8 +7,10 @@ Fact-checking RAG application for law enforcement investigations. Detects contra
 - **Frontend:** Next.js + React + Tailwind CSS
 - **Backend:** FastAPI (Python)
 - **Database:** PostgreSQL + pgvector (cases & evidence)
-- **Agents & Orchestration:** Custom 3-Agent Pipeline (Planner → Researcher → Judge) with Gatekeeper validation
+- **Agents & Orchestration:** Cyclic LangGraph Workflow (Planner → Gatekeeper → Research → Judge → Refinement Loop)
 - **Models:** Supports OpenAI, Google Gemini, Groq, and SiliconFlow (as fallback)
+
+👉 **[View Detailed System Architecture & Dataflow Here](architecture.md)**
 
 ## Setup
 
