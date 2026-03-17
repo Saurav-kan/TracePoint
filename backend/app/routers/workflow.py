@@ -306,11 +306,16 @@ async def _stream_pipeline(
     log_id = -1
     session = get_session()
     try:
+        if isinstance(final_verdict, JudgeResponse):
+            verdict_label = final_verdict.overall_verdict.verdict
+        else:
+            verdict_label = getattr(final_verdict, "verdict", "unknown")
+
         log_entry = InvestigationLog(
             case_id=str(req.case_id),
             claim=req.fact_to_check,
             effort_level=req.effort_level,
-            verdict=final_verdict.overall_verdict.verdict,
+            verdict=verdict_label,
             result_payload=workflow_response.model_dump(mode="json"),
         )
         session.add(log_entry)

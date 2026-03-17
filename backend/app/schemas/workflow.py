@@ -10,6 +10,7 @@ from app.agents.gatekeeper import GatekeeperResult
 from app.schemas.judge import JudgeResponse
 from app.schemas.planner import PlannerResponse
 from app.schemas.research import ResearchResponse
+from app.schemas.reconciliation import ReconciliationResponse
 
 EffortLevel = Literal["standard", "adversarial", "deep"]
 
@@ -65,7 +66,7 @@ class WorkflowResponse(BaseModel):
         default_factory=list,
         description="All completed planner/research/judge passes.",
     )
-    final_verdict: JudgeResponse
+    final_verdict: JudgeResponse | ReconciliationResponse
 
 
 class InvestigationLogSummary(BaseModel):
