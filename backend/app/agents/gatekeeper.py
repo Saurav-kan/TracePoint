@@ -22,38 +22,15 @@ REQUIRED_TYPES = [
     "RECALL_STRESS",
 ]
 
-# Keywords that signal a non-confirmational / contrary task
-_CONTRARY_KEYWORDS = [
-    "innocen",
-    "alibi",
-    "alternative",
-    "exonerat",
-    "disprove",
-    "contradict",
-    "clear",
-    "exclude",
-    "not guilty",
-    "not involved",
-    "ruled out",
-    "against the claim",
-    "weaken",
-    "disconfirm",
-    "opposite",
-    "frame",
-    "false",
-    "unlikely",
-]
+_CLASSIFIER_PROMPT = """
+Given the claim: {claim}
 
-_CONFIRMATIONAL_KEYWORDS = [
-    "support the claim",
-    "supports the claim",
-    "confirm the claim",
-    "confirms the claim",
-    "verify the claim",
-    "verifies the claim",
-    "prove the claim",
-    "proves the claim",
-]
+Classify the following investigative tasks. For each task, does it primarily seek evidence that confirms the claim, or evidence that challenges/contradicts it? Focus on semantic intent, not just keyword presence.
+
+{tasks_block}
+
+Return a JSON array of strings, exactly one per task in the same order, where each string is exactly "CONFIRMATIONAL" or "CONTRARY".
+"""
 
 
 class GatekeeperResult(BaseModel):
@@ -89,45 +66,84 @@ def _has_peripheral_task(resp: PlannerResponse) -> bool:
     return False
 
 
-def _is_contrary_task(resp: PlannerResponse, idx: int) -> bool:
-    """Return whether a task is sufficiently non-confirmational.
+import json
+from app.agents.judge_llm import judge_llm_completion
 
-    The primary signal is contrary language in the task text. As a secondary
-    fallback, honor the planner contract that slots 6-10 are the
-    non-confirmational half, unless those tasks still read like clearly
-    confirmational searches.
-    """
+async def _classify_tasks_semantic(resp: PlannerResponse, case: Case) -> List[str]:
+    """Use an LLM to semantically classify each task as CONFIRMATIONAL or CONTRARY relative to the hypothesis."""
+    tasks_block = "\\n\\n".join([f"Task {i}: {t.question_text}\\nQuery: {t.vector_query}" for i, t in enumerate(resp.tasks)])
+    
+    # We pass the fact_to_check (the specific hypothesis) to classify against.
+    # We MUST define direction RELATIVE TO THIS HYPOTHESIS.
+    prompt = (
+        f"FACT TO CHECK (The Hypothesis): {resp.fact_to_check}\n\n"
+        "You are validating a forensic planner. A planner must generate 10 tasks:\n"
+        "Tasks 0-4 must be CONFIRMATIONAL: They must seek evidence that would SUPPORT the hypothesis being true.\n"
+        "Tasks 5-9 must be CONTRARY: They must seek evidence that would CONTRADICT the hypothesis or support a rival theory.\n\n"
+        "NOTE: If the hypothesis is about an alibi (e.g., 'the alibi is true'), then searching for evidence of that alibi is CONFIRMATIONAL. Searching for evidence of the crime is CONTRARY.\n\n"
+        "Classify these tasks based on their semantic intent relative ONLY to the 'FACT TO CHECK' above:\n\n"
+        f"{tasks_block}\n\n"
+        f"Return a JSON object with a single key 'classifications' containing a list of {len(resp.tasks)} strings, either 'CONFIRMATIONAL' or 'CONTRARY'."
+    )
+    
+    try:
+        raw = await judge_llm_completion(
+            "You are a semantic intent classifier specialized in forensic investigation logic.",
+            prompt,
+            response_format={"type": "json_object"}
+        )
+        data = json.loads(raw)
+        classes = data.get("classifications", [])
+        if isinstance(classes, list) and len(classes) == len(resp.tasks):
+            return [str(c).upper() for c in classes]
+    except Exception:
+        pass
+    
+    # Fallback to a keyword check if inference fails
+    fallbacks = []
+    # If LLM classification fails, we default to the slot position to avoid 
+    # blocking the user, but we mark them as contrary if obvious keywords appear.
+    for i, t in enumerate(resp.tasks):
+        text = (t.question_text + " " + t.vector_query).lower()
+        if i < 5:
+            # First half: assume confirmational unless it yells 'contrary'
+            if any(kw in text for kw in ["contrary", "contradict", "disconfirm", "false claim"]):
+                fallbacks.append("CONTRARY")
+            else:
+                fallbacks.append("CONFIRMATIONAL")
+        else:
+            # Second half: assume contrary unless it yells 'confirm'
+            if any(kw in text for kw in ["confirm", "verify", "support", "prove true"]):
+                fallbacks.append("CONFIRMATIONAL")
+            else:
+                fallbacks.append("CONTRARY")
+    return fallbacks
 
-    task = resp.tasks[idx]
-    text = (task.question_text + " " + task.vector_query).lower()
-
-    if any(kw in text for kw in _CONTRARY_KEYWORDS):
-        return True
+def _validate_slot_polarity(resp: PlannerResponse, classifications: List[str]) -> List[str]:
+    """Check that slot direction matches the planner contract."""
+    reasons: List[str] = []
+    if len(resp.tasks) < 10 or len(classifications) < 10:
+        return reasons
 
     second_half_start = len(resp.tasks) // 2
-    if len(resp.tasks) >= 10 and idx >= second_half_start:
-        return not any(kw in text for kw in _CONFIRMATIONAL_KEYWORDS)
+    for idx, c in enumerate(classifications):
+        if idx < second_half_start and c == "CONTRARY":
+            reasons.append(
+                f"Task {idx} is in the confirmational half but classified semantically as CONTRARY."
+            )
+        if idx >= second_half_start and c == "CONFIRMATIONAL":
+            reasons.append(
+                f"Task {idx} is in the disconfirming half but classified semantically as CONFIRMATIONAL."
+            )
 
-    return False
-
-
-def _count_contrary_tasks(resp: PlannerResponse) -> int:
-    """Count tasks that appear to be non-confirmational."""
-
-    count = 0
-    for idx, _task in enumerate(resp.tasks):
-        if _is_contrary_task(resp, idx):
-            count += 1
-    return count
-
+    return reasons
 
 def _friction_keywords(description: str) -> List[str]:
-    parts = [w.strip(".,!?:;\"'()").lower() for w in description.split()]
+    parts = [w.strip(".,!?:;\\\"'()").lower() for w in description.split()]
     # keep slightly longer tokens to avoid noise
     return [p for p in parts if len(p) >= 4]
 
-
-def validate_planner_output(resp: PlannerResponse, case: Case) -> GatekeeperResult:
+async def validate_planner_output(resp: PlannerResponse, case: Case) -> GatekeeperResult:
     reasons: List[str] = []
 
     # 1. Exactly 10 tasks
@@ -186,12 +202,17 @@ def validate_planner_output(resp: PlannerResponse, case: Case) -> GatekeeperResu
         reasons.append("At least one task must probe peripheral details.")
 
     # 5. Non-confirmational balance: at least 4 contrary tasks required
-    contrary_count = _count_contrary_tasks(resp)
+    classifications = await _classify_tasks_semantic(resp, case)
+    contrary_count = sum(1 for c in classifications if c == "CONTRARY")
     if contrary_count < 4:
         reasons.append(
             f"Expected at least 4 non-confirmational/contrary tasks to avoid "
             f"confirmation bias. Found {contrary_count}."
         )
+
+    # 5b. Slot polarity: first half must not sneak in contrary wording,
+    # second half must be explicitly contrary.
+    reasons.extend(_validate_slot_polarity(resp, classifications))
 
     # 6. Friction focus (heuristic)
     if resp.friction_summary.has_friction and resp.friction_summary.description:

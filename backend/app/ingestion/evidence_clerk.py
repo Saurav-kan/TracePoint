@@ -8,6 +8,7 @@ Also scores all evidence labels 1-10 for auto-labeling.
 import json
 import logging
 import asyncio
+import re
 from typing import List, Optional
 
 from google import genai
@@ -24,6 +25,7 @@ from tenacity import (
 
 from app.config import (
     DEFAULT_EVIDENCE_LABELS,
+    DEFAULT_EVIDENCE_TYPES,
     EVIDENCE_CLERK_MODEL,
     EVIDENCE_CLERK_PROVIDER,
     GOOGLE_API_KEY2,
@@ -71,6 +73,13 @@ class EvidenceClerkDetails(BaseModel):
         default=None,
         description="Model's guess of evidence type (e.g., witness_statement, gps_log)",
     )
+    canonical_evidence_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Normalized evidence type chosen from the controlled taxonomy. "
+            "This field is post-processed by the application for retrieval and validation."
+        ),
+    )
     confidence: float = Field(
         default=0.0,
         ge=0.0,
@@ -91,19 +100,108 @@ def select_top_labels(
     """Pick the top 1-3 labels that score >= cutoff.
 
     Returns at most `max_labels` labels sorted by score descending.
-    If no label meets the cutoff, returns the single highest-scoring label.
+    If no label meets the cutoff, returns ['unclassified'].
     """
     if not scores:
-        return ["forensic_log"]
+        return ["unclassified"]
 
     sorted_scores = sorted(scores, key=lambda s: s.score, reverse=True)
     selected = [s.label for s in sorted_scores if s.score >= cutoff][:max_labels]
 
-    # Fallback: if nothing meets cutoff, use the best one anyway
+    # Fallback: if nothing meets cutoff, mark as unclassified instead of forcing
+    # a misleading label.
     if not selected:
-        selected = [sorted_scores[0].label]
+        selected = ["unclassified"]
 
     return selected
+
+
+def _slugify_type(value: str) -> str:
+    """Normalize arbitrary evidence type text into a loose snake_case slug."""
+    normalized = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+    return normalized
+
+
+def canonicalize_evidence_type(
+    raw_evidence_type: Optional[str],
+    label_scores: List[LabelScore],
+) -> str:
+    """Map freeform AI output into a controlled canonical evidence type."""
+    allowed = set(DEFAULT_EVIDENCE_TYPES)
+    raw = (raw_evidence_type or "").strip()
+    slug = _slugify_type(raw) if raw else ""
+
+    alias_map = {
+        "witness_interview": "witness_statement",
+        "witness_testimony": "witness_statement",
+        "interview_transcript": "security_interview",
+        "security_report": "security_interview",
+        "camera_footage": "surveillance",
+        "cctv": "surveillance",
+        "video": "surveillance",
+        "video_log": "surveillance",
+        "biometric_log": "access_log",
+        "badge_log": "access_log",
+        "audit_log": "access_log",
+        "wifi_log": "network_log",
+        "gps_log": "sensor_data",
+        "telemetry": "sensor_data",
+        "sensor_log": "sensor_data",
+        "maintenance_record": "maintenance_log",
+        "repair_log": "maintenance_log",
+        "email": "communications",
+        "chat_log": "communications",
+        "message_log": "communications",
+        "personnel_record": "hr_record",
+        "employee_record": "hr_record",
+        "invoice": "financial_record",
+        "transaction_log": "financial_record",
+    }
+
+    if slug in allowed:
+        return slug
+    if slug in alias_map:
+        return alias_map[slug]
+
+    heuristics = [
+        (("forensic", "fingerprint", "dna", "ballistic"), "forensic_log"),
+        (("witness", "statement", "testimony"), "witness_statement"),
+        (("interview", "interrogation", "debrief", "security"), "security_interview"),
+        (("badge", "door", "entry", "exit", "biometric", "access"), "access_log"),
+        (("wifi", "network", "ip", "dns", "firewall", "packet"), "network_log"),
+        (("sensor", "telemetry", "gps", "rfid", "temperature", "hvac"), "sensor_data"),
+        (("camera", "cctv", "video", "surveillance"), "surveillance"),
+        (("maintenance", "repair", "service", "work_order"), "maintenance_log"),
+        (("hr", "human_resources", "personnel", "employee"), "hr_record"),
+        (("finance", "invoice", "expense", "payment", "transaction"), "financial_record"),
+        (("email", "chat", "message", "sms", "call"), "communications"),
+        (("ransom", "extortion"), "ransom_note"),
+        (("osint", "public", "social", "news"), "osint"),
+        (("inventory", "checkout", "schedule", "policy", "administrative"), "administrative"),
+        (("artifact", "physical", "object", "device"), "physical"),
+    ]
+    for keywords, canonical in heuristics:
+        if any(keyword in slug for keyword in keywords):
+            return canonical
+
+    sorted_scores = sorted(label_scores, key=lambda s: s.score, reverse=True)
+    if sorted_scores and sorted_scores[0].score >= LABEL_SCORE_CUTOFF:
+        top_label = sorted_scores[0].label
+        if top_label in allowed:
+            return top_label
+
+    return "unclassified"
+
+
+def _finalize_clerk_details(details: EvidenceClerkDetails) -> EvidenceClerkDetails:
+    """Fill application-controlled clerk fields after model generation."""
+    return details.model_copy(
+        update={
+            "canonical_evidence_type": canonicalize_evidence_type(
+                details.evidence_type, details.label_scores
+            )
+        }
+    )
 
 
 def _is_rate_limit_error(exc: BaseException) -> bool:
@@ -134,6 +232,9 @@ def _normalize_clerk_payload(raw: dict) -> dict:
     if "summary" not in raw or not raw["summary"]:
         raw["summary"] = raw.get("evidence_type") or "No summary extracted"
 
+    if "canonical_evidence_type" in raw and not raw["canonical_evidence_type"]:
+        raw.pop("canonical_evidence_type", None)
+
     return raw
 
 
@@ -158,7 +259,7 @@ def _evidence_clerk_call_siliconflow(system_prompt: str, user_content: str) -> E
 
     raw = json.loads(json_text)
     raw = _normalize_clerk_payload(raw)
-    return EvidenceClerkDetails.model_validate(raw)
+    return _finalize_clerk_details(EvidenceClerkDetails.model_validate(raw))
 
 
 @retry(
@@ -223,10 +324,12 @@ async def extract_evidence_details(text: str) -> EvidenceClerkDetails:
     # With response_schema + application/json, google-genai populates
     # `parsed` with a Pydantic model instance when possible.
     if hasattr(response, "parsed") and isinstance(response.parsed, EvidenceClerkDetails):
-        return response.parsed
+        return _finalize_clerk_details(response.parsed)
 
     # Fallback: parse JSON text manually if `parsed` is not set
     if hasattr(response, "text") and response.text:
-        return EvidenceClerkDetails.model_validate_json(response.text)
+        return _finalize_clerk_details(
+            EvidenceClerkDetails.model_validate_json(response.text)
+        )
 
     raise RuntimeError("Evidence clerk returned no usable JSON payload.")

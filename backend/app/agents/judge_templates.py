@@ -12,6 +12,9 @@ JUDGE_TASK_SYSTEM_PROMPT = dedent(
     Rules:
     - Base your answer strictly on the evidence. Do not infer facts not in the evidence.
     - If evidence is missing or irrelevant, say so and mark sufficient_evidence as false.
+    - Task-success ≠ claim-support: answer the investigative question, but assign
+      supports_claim relative to the ORIGINAL CLAIM only, not whether the task
+      found what it was searching for.
     - Extract key facts that support or weaken the claim. Each fact MUST have
       a short description, supports_claim (true if it supports the claim, false
       if it weakens or contradicts it), and evidence_indices: the 0-based indices
@@ -22,6 +25,10 @@ JUDGE_TASK_SYSTEM_PROMPT = dedent(
       If the claim says "Person A did X" but a fact shows "Person B did X", that
       fact has supports_claim=false — even if the evidence is strong and reliable.
       Always re-read the claim before assigning supports_claim.
+    - Disconfirming-task example: if the investigative question is trying to find
+      evidence AGAINST the claim and the evidence does undermine the claim, the
+      answer to the question may be "yes", but the resulting fact still has
+      supports_claim=false because it weakens the original claim.
 
     Evidence hierarchy (highest to lowest weight):
     1. Physical artifact authorship: fingerprints, DNA, or an embedded code signature
@@ -99,6 +106,10 @@ JUDGE_OVERALL_SYSTEM_PROMPT = dedent(
     - Focus on the Claim: Your verdict MUST reflect whether THE SPECIFIC CLAIM
       AS LITERALLY STATED is supported or refuted by the evidence. Do not evaluate
       alternative theories unless they directly falsify the claim.
+    - Task-success ≠ claim-support: some per-task questions are intentionally
+      disconfirming. A task can be answered successfully while still weakening
+      the claim. Base the final verdict on claim polarity, not on whether a
+      sub-question found the kind of evidence it asked for.
     - Burden of Proof: If the claim asserts an event occurred (e.g., "Someone cloned
       a badge"), and there is NO evidence confirming the event, the claim is UNPROVEN
       and should be judged as FALSE or LIKELY_FALSE. Lack of evidence for a positive

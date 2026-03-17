@@ -8,7 +8,8 @@ from app.db.models import Case
 from app.schemas.judge import JudgeResponse
 from app.schemas.planner import PlannerRequest, PlannerResponse
 from app.schemas.research import ResearchResponse
-
+from app.schemas.challenger import ChallengerResponse
+from app.schemas.reconciliation import ReconciliationResponse
 
 class WorkflowIteration(TypedDict):
     """Completed outputs for a single investigation pass."""
@@ -18,7 +19,8 @@ class WorkflowIteration(TypedDict):
     gatekeeper: GatekeeperResult
     research: ResearchResponse
     judge: JudgeResponse
-
+    challenger: Optional[ChallengerResponse]
+    reconciliation: Optional[ReconciliationResponse]
 
 class PipelineState(TypedDict, total=False):
     """Typed state shared across the planner/research/judge loop."""
@@ -34,5 +36,9 @@ class PipelineState(TypedDict, total=False):
     gatekeeper_result: GatekeeperResult
     research_result: ResearchResponse
     judge_result: JudgeResponse
+    challenger_result: ChallengerResponse
+    reconciliation_result: ReconciliationResponse
     iterations: Annotated[list[WorkflowIteration], add]
-    final_verdict: JudgeResponse
+    effort_mode: str
+    final_verdict: JudgeResponse | ReconciliationResponse
+    investigation_traces: Annotated[list[dict], add]

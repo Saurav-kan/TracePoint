@@ -96,6 +96,12 @@ def _build_system_prompt(
         "innocence. The non-confirmational vector_query must search for evidence AGAINST",
         "the claim, not for the claim itself. This ensures equal investigative effort",
         "in both directions.",
+        "Type-Direction Rule: Investigative types are NOT inherently pro-claim or",
+        "anti-claim. Frame each type relative to the slot direction. For example,",
+        "a CONFIRMATIONAL IMPOSSIBILITY task should ask what makes the rival story",
+        "impossible or what constraint still allows the claim to be true; a",
+        "DISCONFIRMING IMPOSSIBILITY task should ask what makes the claim itself",
+        "impossible. Apply the same claim-relative framing to NEGATIVE_PROOF tasks.",
         "Formatting rule for slots 6-10: start question_text with '[DISCONFIRMING]'",
         "and write vector_query so it explicitly includes at least one contrary idea",
         "such as 'alibi', 'alternative suspect', 'exonerating evidence',",
@@ -129,6 +135,9 @@ def _build_system_prompt(
             et_instructions.append(f"- {et}")
         et_instructions.append(
             "Prefer evidence_type over label when both are available."
+        )
+        et_instructions.append(
+            "Avoid evidence_type='unclassified' unless the case truly has no more specific type."
         )
         parts.extend(et_instructions)
 
@@ -256,6 +265,9 @@ def _build_refinement_system_prompt(
         et_instructions.append(
             "Prefer evidence_type over label when both are available."
         )
+        et_instructions.append(
+            "Avoid evidence_type='unclassified' unless the case truly has no more specific type."
+        )
         parts.extend(et_instructions)
 
     if labels:
@@ -378,6 +390,7 @@ async def run_planner(
     brief_text_override: Optional[str] = None,
     refinement_context: Optional[str] = None,
     prior_iterations_summary: Optional[str] = None,
+    regeneration_feedback: Optional[str] = None,
 ) -> PlannerResponse:
     """Run the planner LLM with friction detection and return a response.
 
@@ -424,6 +437,12 @@ async def run_planner(
         )
         if prior_iterations_summary:
             user_content += f"\n\n{prior_iterations_summary}"
+        if regeneration_feedback:
+            user_content += (
+                "\n\nPREVIOUS OUTPUT FAILED VALIDATION. Regenerate all 10 tasks and fix "
+                "every issue below exactly. Do not repeat the same mistakes.\n"
+                f"{regeneration_feedback}"
+            )
 
     # If configured, use OpenAI or Groq as the planner provider
     if PLANNER_PROVIDER in ("openai", "groq"):

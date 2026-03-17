@@ -71,6 +71,12 @@ class PlannerTask(BaseModel):
         description="Metadata filters as key-value pairs (e.g. [{\"key\": \"label\", \"value\": \"gps_log\"}])",
         min_length=1,
     )
+    dependency_order: int = Field(
+        0, description="0 for independent tasks, 1 for dependent on 0, etc."
+    )
+    required_scratchpad_keys: List[str] = Field(
+        default_factory=list, description="Keys expected to be present in scratchpad before running this task."
+    )
 
 
 class PlannerResponse(BaseModel):

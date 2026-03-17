@@ -123,3 +123,22 @@ class InvestigationLog(Base):
     )
 
     case: Mapped[Case] = relationship()
+
+class InvestigationTrace(Base):
+    """Persisted trace record capturing graph execution decisions."""
+
+    __tablename__ = "investigation_traces"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    case_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("cases.case_id"), nullable=False
+    )
+    run_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    trace_payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    case: Mapped[Case] = relationship()

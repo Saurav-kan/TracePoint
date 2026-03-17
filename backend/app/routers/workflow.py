@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Case, CaseBrief, InvestigationLog
+from app.db.models import Case, CaseBrief, InvestigationLog, InvestigationTrace
 from app.db.session import get_session
 from app.graph.graph import compiled_graph
 from app.graph.state import PipelineState
@@ -73,6 +73,7 @@ def _build_initial_state(
         "request": planner_req,
         "brief_text_override": brief_text_override,
         "max_iterations": max_iterations,
+        "effort_mode": getattr(req, "effort_level", "standard"),
         "iterations": [],
     }
 
@@ -174,10 +175,15 @@ async def _stream_pipeline(
     completed_iterations = 0
     final_verdict: JudgeResponse | None = None
     iterations: list[dict] = []
+    all_traces: list[dict] = []
 
     try:
         async for chunk in compiled_graph.astream(initial_state, stream_mode="updates"):
             active_iteration = completed_iterations + 1
+            
+            for node_name, outputs in chunk.items():
+                if "investigation_traces" in outputs:
+                    all_traces.extend(outputs["investigation_traces"])
 
             if "planner_node" in chunk:
                 outputs = chunk["planner_node"]
@@ -221,19 +227,6 @@ async def _stream_pipeline(
             if "judge_node" in chunk:
                 outputs = chunk["judge_node"]
                 judge_result = outputs["judge_result"]
-                if outputs.get("iterations"):
-                    latest_iteration = outputs["iterations"][0]
-                    iterations.append(
-                        {
-                            "iteration": latest_iteration["iteration"],
-                            "planner": _model_to_dict(latest_iteration["planner"]),
-                            "gatekeeper": _model_to_dict(latest_iteration["gatekeeper"]),
-                            "research": _model_to_dict(latest_iteration["research"]),
-                            "judge": _model_to_dict(latest_iteration["judge"]),
-                        }
-                    )
-                    completed_iterations = latest_iteration["iteration"]
-
                 yield _sse_event(
                     "step",
                     {
@@ -244,7 +237,50 @@ async def _stream_pipeline(
                         "data": _model_to_dict(judge_result),
                     },
                 )
-                final_verdict = outputs.get("final_verdict") or judge_result
+            
+            if "challenger_node" in chunk:
+                outputs = chunk["challenger_node"]
+                challenger_result = outputs["challenger_result"]
+                yield _sse_event(
+                    "step",
+                    {
+                        "step": "challenger",
+                        "status": "complete",
+                        "iteration": completed_iterations or active_iteration,
+                        "total_iterations": total_iterations,
+                        "data": _model_to_dict(challenger_result),
+                    },
+                )
+                
+            if "reconciliation_node" in chunk:
+                outputs = chunk["reconciliation_node"]
+                reconciliation_result = outputs["reconciliation_result"]
+                if outputs.get("iterations"):
+                    latest_iteration = outputs["iterations"][0]
+                    iterations.append(
+                        {
+                            "iteration": latest_iteration["iteration"],
+                            "planner": _model_to_dict(latest_iteration["planner"]),
+                            "gatekeeper": _model_to_dict(latest_iteration["gatekeeper"]),
+                            "research": _model_to_dict(latest_iteration["research"]),
+                            "judge": _model_to_dict(latest_iteration["judge"]),
+                            "challenger": _model_to_dict(latest_iteration.get("challenger")),
+                            "reconciliation": _model_to_dict(latest_iteration.get("reconciliation")),
+                        }
+                    )
+                    completed_iterations = latest_iteration["iteration"]
+                    
+                yield _sse_event(
+                    "step",
+                    {
+                        "step": "reconciliation",
+                        "status": "complete",
+                        "iteration": completed_iterations or active_iteration,
+                        "total_iterations": total_iterations,
+                        "data": _model_to_dict(reconciliation_result),
+                    },
+                )
+                final_verdict = outputs.get("final_verdict") or reconciliation_result
     except Exception as exc:
         logger.exception("Workflow stream failed")
         yield _sse_event(
@@ -278,6 +314,14 @@ async def _stream_pipeline(
             result_payload=workflow_response.model_dump(mode="json"),
         )
         session.add(log_entry)
+        session.flush() # get log_entry.id
+        
+        trace_entry = InvestigationTrace(
+            case_id=str(req.case_id),
+            run_id=f"run_{log_entry.id}",
+            trace_payload={"traces": _model_to_dict(all_traces)}
+        )
+        session.add(trace_entry)
         session.commit()
         log_id = log_entry.id
     except Exception as exc:

@@ -56,7 +56,7 @@ export function toBackendLabel(displayLabel: string): string {
 // Shared API types (aligned with backend schemas)
 // ---------------------------------------------------------------------------
 
-export type EffortLevel = "low" | "medium" | "high";
+export type EffortLevel = "standard" | "adversarial" | "deep";
 
 export type VerdictLabel =
   | "true"
@@ -375,7 +375,7 @@ export function runWorkflowStream(
   } = {}
 ): AbortController {
   const controller = new AbortController();
-  const { briefId, effortLevel = "low", onStep, onDone, onError } = options;
+  const { briefId, effortLevel = "standard", onStep, onDone, onError } = options;
 
   const body: Record<string, unknown> = {
     case_id: caseId,

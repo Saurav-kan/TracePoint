@@ -94,4 +94,26 @@ DEFAULT_EVIDENCE_LABELS = [
     "ransom_note",
     "osint",
     "administrative",
+    "unclassified",
+]
+
+# Controlled evidence types used for canonical AI normalization.
+# Keep this list small and stable so planner filters can be enforced reliably.
+DEFAULT_EVIDENCE_TYPES = [
+    "forensic_log",
+    "security_interview",
+    "witness_statement",
+    "physical",
+    "access_log",
+    "network_log",
+    "sensor_data",
+    "surveillance",
+    "hr_record",
+    "financial_record",
+    "maintenance_log",
+    "communications",
+    "ransom_note",
+    "osint",
+    "administrative",
+    "unclassified",
 ]

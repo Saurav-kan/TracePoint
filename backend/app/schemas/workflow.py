@@ -11,12 +11,12 @@ from app.schemas.judge import JudgeResponse
 from app.schemas.planner import PlannerResponse
 from app.schemas.research import ResearchResponse
 
-EffortLevel = Literal["low", "medium", "high"]
+EffortLevel = Literal["standard", "adversarial", "deep"]
 
 EFFORT_ITERATIONS: dict[str, int] = {
-    "low": 1,
-    "medium": 2,
-    "high": 3,
+    "standard": 2,
+    "adversarial": 2, # Adversarial uses Corroboration pass with standard max loops
+    "deep": 2, # Deep forces a second pass regardless of gap
 }
 
 class WorkflowRequest(BaseModel):

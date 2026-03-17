@@ -35,9 +35,9 @@ const EFFORT_OPTIONS: {
   label: string;
   desc: string;
 }[] = [
-  { value: "low", label: "LOW", desc: "Single pass" },
-  { value: "medium", label: "MED", desc: "2× compare" },
-  { value: "high", label: "HIGH", desc: "3× deep" },
+  { value: "standard", label: "STD", desc: "Base refinement" },
+  { value: "adversarial", label: "ADV", desc: "Corroboration layer" },
+  { value: "deep", label: "DEEP", desc: "Deep second pass" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -186,7 +186,7 @@ export default function CaseWorkspace() {
   const [isUpdatingBrief, setIsUpdatingBrief] = useState(false);
 
   // Analysis state
-  const [effortLevel, setEffortLevel] = useState<EffortLevel>("low");
+  const [effortLevel, setEffortLevel] = useState<EffortLevel>("standard");
   const [currentClaim, setCurrentClaim] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [pipelineView, setPipelineView] = useState(false);

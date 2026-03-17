@@ -24,12 +24,16 @@ VERIFICATION_TEMPLATE = dedent(
 
 IMPOSSIBILITY_TEMPLATE = dedent(
     """
-    IMPOSSIBILITY questions ask: "What evidence could prove that the claim
-    cannot be true at the same time as other known facts?" Examples include
-    mutually exclusive locations or times, closed hours, or resource limits
-    that make the claim impossible. Crucially, always ask for physical trait
-    logs (elevator loads, height measurements) and CROSS-REFERENCE them with
-    the suspect's recorded physical profile in HR records to spot framing.
+    IMPOSSIBILITY questions ask: "What constraints, timelines, or physical
+    facts would make one side of the story impossible?" Frame the direction
+    relative to the task slot. In a CONFIRMATIONAL slot, ask what would make
+    rival explanations impossible or what would show the claim could still be
+    true despite the apparent contradiction. In a DISCONFIRMING slot, ask what
+    would make the claim itself impossible. Examples include mutually exclusive
+    locations or times, closed hours, travel-time limits, or physical traits
+    that do or do not match the observed actor. When physical-trait logs
+    exist (elevator loads, height measurements), compare them against relevant
+    HR or personnel records to test for framing instead of assuming identity.
     """
 ).strip()
 
@@ -46,10 +50,14 @@ ENVIRONMENTAL_TEMPLATE = dedent(
 
 NEGATIVE_PROOF_TEMPLATE = dedent(
     """
-    NEGATIVE_PROOF questions ask: "What should exist if the claim were true,
-    but appears to be missing?" Examples include missing access logs,
-    missing alerts, or the absence of routine records that would normally
-    be created by the claimed event.
+    NEGATIVE_PROOF questions ask: "What expected records are missing, and what
+    does that absence imply?" Frame the absence relative to the task slot. In
+    a CONFIRMATIONAL slot, ask what records should exist if the competing
+    explanation were true, but are missing, or what routine traces support the
+    claim by their presence. In a DISCONFIRMING slot, ask what records should
+    exist if the claim were true, but are absent. Examples include missing
+    access logs, missing alerts, absent CCTV, or the absence of routine records
+    that would normally be created by the event being tested.
     """
 ).strip()
 

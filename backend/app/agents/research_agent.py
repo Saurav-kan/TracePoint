@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import List
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.types import Float
 
@@ -21,6 +21,43 @@ _ec_table = EvidenceChunk.__table__
 from app.ingestion.embedder import embed_texts
 from app.schemas.planner import PlannerResponse
 from app.schemas.research import EvidenceSnippet, ResearchResponse, ResearchTaskResult
+from app.agents.judge_llm import judge_llm_completion
+import json
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
+
+class ResearchScratchpad:
+    def __init__(self):
+        self.discovered_ips = []
+        self.discovered_macs = []
+        self.discovered_people = []
+
+    def update(self, new_entities: dict):
+        for k, v in new_entities.items():
+            if hasattr(self, k):
+                current = getattr(self, k)
+                if isinstance(v, list):
+                    current.extend(v)
+                else:
+                    current.append(v)
+            else:
+                setattr(self, k, v if isinstance(v, list) else [v])
+
+async def _extract_entities_from_evidence(evidence: List[EvidenceSnippet]) -> dict:
+    if not evidence:
+        return {}
+    text_blocks = "\n".join(e.chunk for e in evidence[:3])
+    prompt = f"Extract key investigative entities (IP addresses, MAC addresses, Person names) from the following evidence.\\n\\n{text_blocks}\\n\\nReturn EXACTLY a JSON object with keys like 'discovered_ips', 'discovered_macs', 'discovered_people'. Each should map to a list of strings."
+    try:
+        raw = await judge_llm_completion("You are an extraction assistant.", prompt, response_format={"type": "json_object"})
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.warning(f"Failed to extract entities: {e}")
+        return {}
+
 
 
 def _similarity_column(embedding_column, query_embedding):
@@ -55,29 +92,52 @@ def _build_metadata_filters(task, table_or_entity) -> List:  # type: ignore[type
         elif key == "source_document":
             clauses.append(source_doc_col == value)
         elif key == "evidence_type":
-            # Query clerk-extracted evidence_type from JSONB
+            # Prefer canonical evidence_type, but continue matching legacy raw
+            # evidence_type values for documents ingested before normalization.
             clauses.append(
-                meta_col["evidence_clerk"]["evidence_type"].astext == value
+                or_(
+                    meta_col["evidence_clerk"]["canonical_evidence_type"].astext == value,
+                    meta_col["evidence_clerk"]["evidence_type"].astext == value,
+                    label_col == value,
+                )
             )
         else:
             clauses.append(meta_col[value].astext == value)
     return clauses
 
 
-def run_research(planner_resp: PlannerResponse) -> ResearchResponse:
+async def run_research(planner_resp: PlannerResponse) -> ResearchResponse:
     """Run research for all planner tasks and return structured evidence.
 
-    This function is synchronous and uses the existing SQLAlchemy Session
-    helper; it is intended to be called from FastAPI endpoints that already
-    run in a threadpool.
+    This function is async. It handles execution order, scratchpad formatting,
+    and entity extraction.
     """
     session: Session = get_session()
     tasks_results: List[ResearchTaskResult] = []
+    scratchpad = ResearchScratchpad()
+
+    # Sort tasks by dependency order so order 0 executes before order 1
+    sorted_tasks = sorted(planner_resp.tasks, key=lambda t: t.dependency_order)
 
     try:
-        for task in planner_resp.tasks:
+        for task in sorted_tasks:
+            try:
+                formatted_query = task.vector_query.format(scratchpad=scratchpad)
+            except (KeyError, IndexError, AttributeError) as e:
+                logger.warning(f"Task skipped due to missing dependency '{e}'")
+                tasks_results.append(
+                    ResearchTaskResult(
+                        question_text=task.question_text,
+                        vector_query=task.vector_query,
+                        metadata_filter=task.metadata_filter,
+                        evidence=[],
+                    )
+                )
+                tasks_results[-1].notes = "SKIPPED_DUE_TO_MISSING_DEPENDENCY"
+                continue
+
             # 1. Embed the vector query
-            embeddings = embed_texts([task.vector_query])
+            embeddings = await asyncio.to_thread(embed_texts, [formatted_query])
             if not embeddings or embeddings[0] is None:
                 tasks_results.append(
                     ResearchTaskResult(
@@ -119,7 +179,10 @@ def run_research(planner_resp: PlannerResponse) -> ResearchResponse:
                 .limit(RESEARCH_TOP_K)
             )
 
-            rows = session.execute(stmt).all()
+            # Executing query synchronously since it's blocking locally. 
+            # In a true async stack this would use AsyncSession.
+            rows = await asyncio.to_thread(session.execute, stmt)
+            rows = rows.all()
 
             evidence_items: List[EvidenceSnippet] = []
             for row in rows:
@@ -154,10 +217,14 @@ def run_research(planner_resp: PlannerResponse) -> ResearchResponse:
                 )
                 evidence_items.append(snippet)
 
+            if evidence_items:
+                extracted = await _extract_entities_from_evidence(evidence_items)
+                scratchpad.update(extracted)
+
             tasks_results.append(
                 ResearchTaskResult(
                     question_text=task.question_text,
-                    vector_query=task.vector_query,
+                    vector_query=formatted_query,
                     metadata_filter=task.metadata_filter,
                     evidence=evidence_items,
                 )
