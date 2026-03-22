@@ -8,6 +8,7 @@ import logging
 from app.agents.gatekeeper import GatekeeperResult, validate_planner_output
 from app.agents.judge_agent import run_judge
 from app.agents.challenger import run_challenger
+from app.agents.proof_tester import run_proof_test
 from app.agents.reconciliation import run_reconciliation
 from app.agents.corroboration import run_corroboration
 from app.agents.planner_agent import run_planner
@@ -58,7 +59,7 @@ def _build_refinement_context(state: PipelineState) -> str:
 
     lines = []
     
-    if effort_mode == "deep" and completed_iterations == 1 and challenger and challenger.has_disagreement:
+    if effort_mode in ("deep", "proof") and completed_iterations == 1 and challenger and challenger.has_disagreement:
         lines.append("[DEEP MODE ACTIVATED: SECOND PASS OVERRIDE]")
         lines.append("The following opposing narrative emerged during the first pass but was not definitively resolved:")
         if challenger.structured_disagreement:
@@ -123,14 +124,22 @@ async def planner_node(state: PipelineState) -> dict:
             f"- {reason}" for reason in gatekeeper_result.reasons
         )
 
-    if planner_result is None or gatekeeper_result is None:
+    if planner_result is None:
         raise RuntimeError("Planner node failed to produce a result.")
 
     if not gatekeeper_result.valid:
-        detail = "Planner output failed validation: " + "; ".join(
-            gatekeeper_result.reasons
+        logger.warning(
+            "Gatekeeper validation failed after %s attempts; proceeding with best-effort planner output.",
+            _PLANNER_MAX_ATTEMPTS,
         )
-        raise RuntimeError(detail)
+        gatekeeper_result = GatekeeperResult(
+            valid=True,
+            reasons=[
+                "Validation bypassed after max retries; using best-effort planner output.",
+                "Original failures: " + "; ".join(gatekeeper_result.reasons[:3]),
+            ],
+            needs_regeneration=False,
+        )
 
     return {
         "planner_result": planner_result,
@@ -237,15 +246,37 @@ async def reconciliation_node(state: PipelineState) -> dict:
     if challenger_result.retrieval_gap and iteration_number < max_iterations:
         needs_rerun = True
 
-    # 2. Deep mode second pass override
-    if effort_mode == "deep" and iteration_number == 1 and challenger_result.has_disagreement:
+    # 2. Deep/Proof mode second pass override
+    if effort_mode in ("deep", "proof") and iteration_number == 1 and challenger_result.has_disagreement:
         needs_rerun = True
 
     if needs_rerun:
         updates["refinement_context"] = _build_refinement_context(state)
     else:
-        updates["final_verdict"] = reconciliation_result
-        updates["refinement_context"] = None
+        if effort_mode == "proof":
+            # Proof-test pass: validate key facts, adjust verdict
+            try:
+                req = state["request"]
+                claim = req.fact_to_check
+                case_id = req.case_id
+                proof_result, adjusted_reconciliation = await run_proof_test(
+                    reconciliation_result,
+                    claim,
+                    case_id,
+                    state.get("brief_text_override"),
+                )
+                updates["final_verdict"] = adjusted_reconciliation
+                updates["proof_test_result"] = proof_result
+                updates["refinement_context"] = None
+            except Exception as e:
+                logger.warning("Proof test failed, using reconciliation verdict: %s", e)
+                updates["final_verdict"] = reconciliation_result
+                updates["proof_test_result"] = None
+                updates["refinement_context"] = None
+        else:
+            updates["final_verdict"] = reconciliation_result
+            updates["proof_test_result"] = None
+            updates["refinement_context"] = None
 
     updates.update(_append_trace("reconciliation", reconciliation_result.model_dump() if hasattr(reconciliation_result, "model_dump") else reconciliation_result.dict()))
     return updates

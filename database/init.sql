@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS investigation_logs (
     id BIGSERIAL PRIMARY KEY,
     case_id UUID NOT NULL REFERENCES cases(case_id) ON DELETE CASCADE,
     claim TEXT NOT NULL,
-    effort_level VARCHAR(10) NOT NULL DEFAULT 'low',
+    effort_level VARCHAR(20) NOT NULL DEFAULT 'standard',
     verdict VARCHAR(50) NOT NULL,
     result_payload JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW()

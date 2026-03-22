@@ -98,6 +98,7 @@ def _build_workflow_response(
     effort_level: str,
     iterations: list[dict],
     final_verdict: JudgeResponse,
+    proof_test_result=None,
 ) -> WorkflowResponse:
     """Normalize graph state into the API response shape."""
 
@@ -106,6 +107,7 @@ def _build_workflow_response(
         effort_level=effort_level,
         iterations=iterations,
         final_verdict=final_verdict,
+        proof_test_result=proof_test_result,
     )
 
 
@@ -174,6 +176,7 @@ async def _stream_pipeline(
     total_iterations = initial_state["max_iterations"]
     completed_iterations = 0
     final_verdict: JudgeResponse | None = None
+    proof_test_result = None
     iterations: list[dict] = []
     all_traces: list[dict] = []
 
@@ -281,6 +284,18 @@ async def _stream_pipeline(
                     },
                 )
                 final_verdict = outputs.get("final_verdict") or reconciliation_result
+                proof_test_result = outputs.get("proof_test_result")
+                if proof_test_result is not None:
+                    yield _sse_event(
+                        "step",
+                        {
+                            "step": "proof_test",
+                            "status": "complete",
+                            "iteration": completed_iterations or active_iteration,
+                            "total_iterations": total_iterations,
+                            "data": _model_to_dict(proof_test_result),
+                        },
+                    )
     except Exception as exc:
         logger.exception("Workflow stream failed")
         yield _sse_event(
@@ -301,6 +316,7 @@ async def _stream_pipeline(
         effort_level=req.effort_level,
         iterations=iterations,
         final_verdict=final_verdict,
+        proof_test_result=proof_test_result,
     )
 
     log_id = -1

@@ -10,14 +10,16 @@ from app.agents.gatekeeper import GatekeeperResult
 from app.schemas.judge import JudgeResponse
 from app.schemas.planner import PlannerResponse
 from app.schemas.research import ResearchResponse
+from app.schemas.proof_tester import ProofTestResult
 from app.schemas.reconciliation import ReconciliationResponse
 
-EffortLevel = Literal["standard", "adversarial", "deep"]
+EffortLevel = Literal["standard", "adversarial", "deep", "proof"]
 
 EFFORT_ITERATIONS: dict[str, int] = {
     "standard": 2,
-    "adversarial": 2, # Adversarial uses Corroboration pass with standard max loops
-    "deep": 2, # Deep forces a second pass regardless of gap
+    "adversarial": 2,  # Adversarial uses Corroboration pass with standard max loops
+    "deep": 2,  # Deep forces a second pass regardless of gap
+    "proof": 2,  # Proof: 2 iterations like deep, then proof-test pass after reconciliation
 }
 
 class WorkflowRequest(BaseModel):
@@ -29,7 +31,7 @@ class WorkflowRequest(BaseModel):
         None, description="Use this case brief instead of the case default"
     )
     effort_level: EffortLevel = Field(
-        "low",
+        "standard",
         description="Controls how many planner/research/judge passes are allowed.",
     )
 
@@ -67,6 +69,10 @@ class WorkflowResponse(BaseModel):
         description="All completed planner/research/judge passes.",
     )
     final_verdict: JudgeResponse | ReconciliationResponse
+    proof_test_result: Optional[ProofTestResult] = Field(
+        None,
+        description="Proof-test result when effort_level is 'proof'.",
+    )
 
 
 class InvestigationLogSummary(BaseModel):

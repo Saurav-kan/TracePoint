@@ -13,6 +13,7 @@ import {
   type CaseBriefResponse,
   type CaseDetailResponse,
   type JudgeResponse,
+  type ReconciliationResponse,
   type PipelineStepEvent,
   type WorkflowResponse,
   type InvestigationLogSummary,
@@ -38,6 +39,7 @@ const EFFORT_OPTIONS: {
   { value: "standard", label: "STD", desc: "Base refinement" },
   { value: "adversarial", label: "ADV", desc: "Corroboration layer" },
   { value: "deep", label: "DEEP", desc: "Deep second pass" },
+  { value: "proof", label: "PROOF", desc: "Proof-test key facts" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -196,7 +198,7 @@ export default function CaseWorkspace() {
   const [plannerData, setPlannerData] = useState<PlannerResponse | null>(null);
   const [gatekeeperData, setGatekeeperData] = useState<GatekeeperResult | null>(null);
   const [researchData, setResearchData] = useState<ResearchResponse | null>(null);
-  const [judgeData, setJudgeData] = useState<JudgeResponse | null>(null);
+  const [judgeData, setJudgeData] = useState<JudgeResponse | ReconciliationResponse | null>(null);
   const [workflowResult, setWorkflowResult] = useState<WorkflowResponse | null>(null);
   const streamControllerRef = useRef<AbortController | null>(null);
 
@@ -306,7 +308,8 @@ export default function CaseWorkspace() {
               break;
             case "judge":
             case "synthesis":
-              setJudgeData(event.data as unknown as JudgeResponse);
+            case "reconciliation":
+              setJudgeData(event.data as unknown as JudgeResponse | ReconciliationResponse);
               break;
           }
         }
@@ -314,7 +317,7 @@ export default function CaseWorkspace() {
       onDone: (payload) => {
         setWorkflowResult(payload.data);
         if (payload.data?.final_verdict) {
-          setJudgeData(payload.data.final_verdict);
+          setJudgeData(payload.data.final_verdict as JudgeResponse | ReconciliationResponse);
         }
         setIsAnalyzing(false);
         fetchLogs();
@@ -340,7 +343,11 @@ export default function CaseWorkspace() {
         setGatekeeperData(wf.iterations[0].gatekeeper);
         setResearchData(wf.iterations[0].research);
       }
-      setCurrentClaim(wf.final_verdict?.fact_to_check ?? "");
+      setCurrentClaim(
+        ("fact_to_check" in (wf.final_verdict ?? {}) ? (wf.final_verdict as JudgeResponse).fact_to_check : null) ??
+          (wf.iterations?.[0] as { planner?: { fact_to_check?: string } })?.planner?.fact_to_check ??
+          ""
+      );
       setPipelineView(true);
       // Mark all steps as complete for display
       setPipelineSteps([
@@ -421,7 +428,11 @@ export default function CaseWorkspace() {
 
   const selectedBrief = briefs.find((b) => b.id === selectedBriefId);
   const displayBrief = selectedBrief?.brief_text ?? caseData?.brief ?? "";
-  const v = judgeData?.overall_verdict;
+  const v = judgeData
+    ? "overall_verdict" in judgeData
+      ? (judgeData as JudgeResponse).overall_verdict
+      : (judgeData as ReconciliationResponse)
+    : null;
 
   // --- Loading / Error states ---
 
@@ -778,9 +789,9 @@ export default function CaseWorkspace() {
 
               {/* Judge Panel */}
               <PipelineCard title="Judge" icon="⚖️" status={stepStatus("judge")}>
-                {judgeData ? (
+                {judgeData && "tasks" in judgeData && Array.isArray(judgeData.tasks) ? (
                   <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar">
-                    {judgeData.tasks?.map((task, i) => (
+                    {judgeData.tasks.map((task, i) => (
                       <div key={i} className="border border-zinc-800/50 rounded-lg p-3 space-y-2">
                         <p className="text-xs text-zinc-400 font-medium">{task.question_text}</p>
                         <p className="text-xs text-zinc-300 leading-relaxed">{task.answer}</p>
@@ -820,11 +831,52 @@ export default function CaseWorkspace() {
                       </div>
                     ))}
                   </div>
+                ) : judgeData && "verdict" in judgeData ? (
+                  <div className="space-y-2 text-xs text-zinc-400">
+                    <p>Reconciliation verdict (no per-task breakdown).</p>
+                  </div>
                 ) : (
                   <Skeleton lines={4} />
                 )}
               </PipelineCard>
             </div>
+          )}
+
+          {/* ---- Proof Test Results (when effort is proof) ---- */}
+          {workflowResult?.proof_test_result && (
+            <section className="glass-panel p-6 rounded-2xl space-y-4 animate-fade-in">
+              <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">
+                Proof Test Results
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div className="space-y-2">
+                  <span className="text-success font-mono">Validated Supporting:</span>
+                  <span className="text-zinc-400"> {workflowResult.proof_test_result.validated_supporting?.length ?? 0}</span>
+                </div>
+                <div className="space-y-2">
+                  <span className="text-success font-mono">Validated Contradicting:</span>
+                  <span className="text-zinc-400"> {workflowResult.proof_test_result.validated_contradicting?.length ?? 0}</span>
+                </div>
+                <div className="space-y-2">
+                  <span className="text-danger font-mono">Invalidated Supporting:</span>
+                  <span className="text-zinc-400"> {workflowResult.proof_test_result.invalidated_supporting?.length ?? 0}</span>
+                </div>
+                <div className="space-y-2">
+                  <span className="text-danger font-mono">Invalidated Contradicting:</span>
+                  <span className="text-zinc-400"> {workflowResult.proof_test_result.invalidated_contradicting?.length ?? 0}</span>
+                </div>
+              </div>
+              {(workflowResult.proof_test_result.replacements?.length ?? 0) > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-[10px] font-mono text-zinc-500 uppercase">Replacements</h4>
+                  <ul className="space-y-1">
+                    {workflowResult.proof_test_result.replacements.map((r, i) => (
+                      <li key={i} className="text-zinc-400 border-l-2 border-accent/30 pl-2">{r.description}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
           )}
 
           {/* ---- Verdict Panel (always visible when we have a verdict) ---- */}

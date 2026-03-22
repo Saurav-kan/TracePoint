@@ -2,11 +2,12 @@
 
 This agent consumes a PlannerResponse, applies vector + metadata
 filters per task, and returns a ResearchResponse that the judge
-agent can consume.
+agent can consume. Also provides run_proof_research for proof-test mode.
 """
 from __future__ import annotations
 
 from typing import List
+from uuid import UUID
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
@@ -238,3 +239,91 @@ async def run_research(planner_resp: PlannerResponse) -> ResearchResponse:
         fact_to_check=planner_resp.fact_to_check,
         tasks=tasks_results,
     )
+
+
+PROOF_RESEARCH_TOP_K = 10
+
+
+async def run_proof_research(
+    case_id: UUID,
+    queries: List[str],
+    top_k: int = PROOF_RESEARCH_TOP_K,
+) -> List[List[EvidenceSnippet]]:
+    """Lightweight vector search for proof-test mode.
+
+    Embeds each query and retrieves top-k chunks per query from the case's
+    evidence_chunks. No planner task format, no metadata filters.
+
+    Returns:
+        List of evidence lists, one per query (order preserved).
+    """
+    if not queries:
+        return []
+
+    session: Session = get_session()
+    results: List[List[EvidenceSnippet]] = []
+
+    try:
+        embeddings = await asyncio.to_thread(embed_texts, queries)
+        if not embeddings or len(embeddings) != len(queries):
+            return [[] for _ in queries]
+
+        for query_emb in embeddings:
+            if query_emb is None:
+                results.append([])
+                continue
+
+            sim_col = _similarity_column(_ec_table.c.embedding, query_emb)
+            stmt = (
+                select(
+                    _ec_table.c.id,
+                    _ec_table.c.content,
+                    _ec_table.c.source_document,
+                    _ec_table.c.case_id,
+                    sim_col.label("score"),
+                )
+                .where(_ec_table.c.case_id == str(case_id))
+                .order_by(sim_col.asc())
+                .limit(top_k)
+            )
+
+            rows = await asyncio.to_thread(session.execute, stmt)
+            rows = rows.all()
+
+            evidence_items: List[EvidenceSnippet] = []
+            for row in rows:
+                chunk_id, content, source_document, cid, score = row
+                prev_row = (
+                    session.execute(
+                        select(_ec_table.c.content).where(
+                            _ec_table.c.source_document == source_document,
+                            _ec_table.c.case_id == cid,
+                            _ec_table.c.id < chunk_id,
+                        ).order_by(_ec_table.c.id.desc()).limit(1)
+                    ).first()
+                )
+                next_row = (
+                    session.execute(
+                        select(_ec_table.c.content).where(
+                            _ec_table.c.source_document == source_document,
+                            _ec_table.c.case_id == cid,
+                            _ec_table.c.id > chunk_id,
+                        ).order_by(_ec_table.c.id.asc()).limit(1)
+                    ).first()
+                )
+                snippet = EvidenceSnippet(
+                    source_document=source_document,
+                    case_id=case_id,
+                    score=float(score),
+                    chunk_before=prev_row[0] if prev_row else None,
+                    chunk=content,
+                    chunk_after=next_row[0] if next_row else None,
+                )
+                evidence_items.append(snippet)
+
+            results.append(evidence_items)
+
+    finally:
+        session.close()
+
+    return results

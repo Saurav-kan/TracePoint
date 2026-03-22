@@ -9,6 +9,7 @@ from app.schemas.judge import JudgeResponse
 from app.schemas.planner import PlannerRequest, PlannerResponse
 from app.schemas.research import ResearchResponse
 from app.schemas.challenger import ChallengerResponse
+from app.schemas.proof_tester import ProofTestResult
 from app.schemas.reconciliation import ReconciliationResponse
 
 class WorkflowIteration(TypedDict):
@@ -41,4 +42,5 @@ class PipelineState(TypedDict, total=False):
     iterations: Annotated[list[WorkflowIteration], add]
     effort_mode: str
     final_verdict: JudgeResponse | ReconciliationResponse
+    proof_test_result: ProofTestResult | None
     investigation_traces: Annotated[list[dict], add]

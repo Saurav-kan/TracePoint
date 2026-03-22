@@ -113,7 +113,7 @@ class InvestigationLog(Base):
         UUID(as_uuid=False), ForeignKey("cases.case_id"), nullable=False
     )
     claim: Mapped[str] = mapped_column(Text, nullable=False)
-    effort_level: Mapped[str] = mapped_column(String(10), nullable=False, default="low")
+    effort_level: Mapped[str] = mapped_column(String(20), nullable=False, default="standard")
     verdict: Mapped[str] = mapped_column(String(50), nullable=False)
     result_payload: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default="{}"

@@ -56,7 +56,7 @@ export function toBackendLabel(displayLabel: string): string {
 // Shared API types (aligned with backend schemas)
 // ---------------------------------------------------------------------------
 
-export type EffortLevel = "standard" | "adversarial" | "deep";
+export type EffortLevel = "standard" | "adversarial" | "deep" | "proof";
 
 export type VerdictLabel =
   | "true"
@@ -222,17 +222,35 @@ export interface IterationResult {
   judge: JudgeResponse;
 }
 
+export interface ProofTestResult {
+  validated_supporting: JudgeTaskFact[];
+  validated_contradicting: JudgeTaskFact[];
+  invalidated_supporting: unknown[];
+  invalidated_contradicting: unknown[];
+  replacements: JudgeTaskFact[];
+  adjusted_verdict: Record<string, unknown>;
+}
+
+export interface ReconciliationResponse {
+  case_id: string;
+  verdict: VerdictLabel;
+  rationale: string;
+  supporting_facts: JudgeTaskFact[];
+  contradicting_facts: JudgeTaskFact[];
+}
+
 export interface WorkflowResponse {
   log_id: number;
   effort_level: EffortLevel;
   iterations: IterationResult[];
-  final_verdict: JudgeResponse;
+  final_verdict: JudgeResponse | ReconciliationResponse;
+  proof_test_result?: ProofTestResult | null;
 }
 
 export interface InvestigationLogSummary {
   id: number;
   claim: string;
-  effort_level: EffortLevel;
+  effort_level: EffortLevel | string;
   verdict: string;
   created_at: string;
 }
